@@ -179,7 +179,7 @@ func (c *Client) GetDSL(appID string) ([]byte, error) {
 		return nil, fmt.Errorf("not authenticated, call Login() first")
 	}
 
-	url := fmt.Sprintf("%s/console/api/apps/%s/export?include_secret=true", c.BaseURL, appID)
+	url := fmt.Sprintf("%s/console/api/apps/%s/export?include_secret=false", c.BaseURL, appID)
 
 	fmt.Printf("Debug - Using export URL: %s\n", url)
 

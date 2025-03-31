@@ -234,8 +234,8 @@ func TestGetDSL(t *testing.T) {
 		}
 
 		// Check query parameter
-		if r.URL.Query().Get("include_secret") != "true" {
-			t.Errorf("Expected include_secret=true query parameter")
+		if r.URL.Query().Get("include_secret") != "false" {
+			t.Errorf("Expected include_secret=false query parameter")
 		}
 
 		// Check authorization header
