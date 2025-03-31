@@ -137,6 +137,19 @@ func setupTestSyncerAndServer(t *testing.T) (Syncer, *httptest.Server, string, s
 					"access_token": "test-token"
 				}
 			}`))
+		case "/console/api/apps":
+			// Return a list of apps that includes our test app
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": [
+					{
+						"id": "test-app-id",
+						"name": "Test App",
+						"updated_at": "2023-01-01T12:00:00Z"
+					}
+				]
+			}`))
 		case "/console/api/apps/test-app-id":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -173,6 +186,11 @@ func setupTestSyncerAndServer(t *testing.T) (Syncer, *httptest.Server, string, s
 			} else {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 			}
+		case "/console/api/apps/test-app-id/check":
+			// App exists
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"exists": true}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1184,6 +1202,38 @@ func TestSyncAllWithDeletedApps(t *testing.T) {
 			return
 		}
 
+		// Handle app list request
+		if r.URL.Path == "/console/api/apps" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": [
+					{
+						"id": "app-id-1",
+						"name": "App 1",
+						"updated_at": "2023-01-01T12:00:00Z"
+					}
+				]
+			}`))
+			return
+		}
+
+		// Handle check for app-id-1 (exists)
+		if r.URL.Path == "/console/api/apps/app-id-1/check" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"exists": true}`))
+			return
+		}
+
+		// Handle check for app-id-2 (deleted)
+		if r.URL.Path == "/console/api/apps/app-id-2/check" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"exists": false}`))
+			return
+		}
+
 		// App 2 is deleted
 		if strings.Contains(r.URL.Path, "app-id-2") {
 			w.WriteHeader(http.StatusNotFound)
@@ -1737,5 +1787,234 @@ func TestSyncAppExtensive(t *testing.T) {
 				t.Errorf("Expected error: %v, got error: %v", tc.expectedError, result.Error)
 			}
 		})
+	}
+}
+
+// TestSyncAllWithRenamedApps tests that files are renamed when remote app names change
+func TestSyncAllWithRenamedApps(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "difync-test-")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test DSL directory
+	dslDir := filepath.Join(tmpDir, "dsl")
+	err = os.Mkdir(dslDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create DSL directory: %v", err)
+	}
+
+	// Create test DSL files with original names
+	dslContent := "name: Original App Name\nversion: 1.0.0"
+	oldFilename := "Original_App_Name.yaml"
+	oldFilePath := filepath.Join(dslDir, oldFilename)
+	err = os.WriteFile(oldFilePath, []byte(dslContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write DSL file: %v", err)
+	}
+
+	// Create test DSL file with Japanese name
+	jpContent := "name: 日本語アプリ\nversion: 1.0.0"
+	jpOldFilename := "日本語アプリ.yaml"
+	jpOldFilePath := filepath.Join(dslDir, jpOldFilename)
+	err = os.WriteFile(jpOldFilePath, []byte(jpContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write Japanese DSL file: %v", err)
+	}
+
+	// Create an app map file with the original filenames
+	appMapPath := filepath.Join(tmpDir, "app_map.json")
+	appMap := AppMap{
+		Apps: []AppMapping{
+			{
+				Filename: oldFilename,
+				AppID:    "app-id-1",
+			},
+			{
+				Filename: jpOldFilename,
+				AppID:    "app-id-2",
+			},
+		},
+	}
+
+	appMapData, err := json.Marshal(appMap)
+	if err != nil {
+		t.Fatalf("Failed to marshal app map: %v", err)
+	}
+
+	err = os.WriteFile(appMapPath, appMapData, 0644)
+	if err != nil {
+		t.Fatalf("Failed to write app map file: %v", err)
+	}
+
+	// Create a mock server that returns changed app names
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/console/api/login" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"status": "success",
+				"data": {
+					"access_token": "test-token"
+				}
+			}`))
+			return
+		}
+
+		if r.URL.Path == "/console/api/apps" {
+			// Return the app list with changed names
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": [
+					{
+						"id": "app-id-1",
+						"name": "Changed App Name",
+						"updated_at": 1672531200
+					},
+					{
+						"id": "app-id-2",
+						"name": "変更された日本語アプリ",
+						"updated_at": 1672617600
+					}
+				]
+			}`))
+			return
+		}
+
+		if r.URL.Path == "/console/api/apps/app-id-1" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": {
+					"id": "app-id-1",
+					"name": "Changed App Name",
+					"updated_at": 1672531200
+				}
+			}`))
+			return
+		}
+
+		if r.URL.Path == "/console/api/apps/app-id-2" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": {
+					"id": "app-id-2",
+					"name": "変更された日本語アプリ",
+					"updated_at": 1672617600
+				}
+			}`))
+			return
+		}
+
+		if r.URL.Path == "/console/api/apps/app-id-1/export" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": "name: Changed App Name\nversion: 1.0.0"
+			}`))
+			return
+		}
+
+		if r.URL.Path == "/console/api/apps/app-id-2/export" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": "name: 変更された日本語アプリ\nversion: 1.0.0"
+			}`))
+			return
+		}
+
+		// Handle checks for app existence
+		if r.URL.Path == "/console/api/apps/app-id-1/check" || r.URL.Path == "/console/api/apps/app-id-2/check" {
+			// All apps exist in this test
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"exists": true}`))
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	// Create syncer with test configuration
+	config := Config{
+		DifyBaseURL:  server.URL,
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
+		DSLDirectory: dslDir,
+		AppMapFile:   appMapPath,
+		Verbose:      true, // For better debugging in tests
+	}
+	syncer := NewSyncer(config)
+
+	// Run SyncAll
+	stats, err := syncer.SyncAll()
+	if err != nil {
+		t.Fatalf("Failed to sync all: %v", err)
+	}
+
+	// Check that files were renamed
+	expectedNewFilename := "Changed_App_Name.yaml"
+	expectedJpNewFilename := "変更された日本語アプリ.yaml"
+
+	// Check that the old files no longer exist
+	if _, err := os.Stat(oldFilePath); !os.IsNotExist(err) {
+		t.Errorf("Expected old file %s to be renamed/removed", oldFilename)
+	}
+	if _, err := os.Stat(jpOldFilePath); !os.IsNotExist(err) {
+		t.Errorf("Expected old file %s to be renamed/removed", jpOldFilename)
+	}
+
+	// Check that the new files exist
+	newFilePath := filepath.Join(dslDir, expectedNewFilename)
+	if _, err := os.Stat(newFilePath); os.IsNotExist(err) {
+		t.Errorf("Expected new file %s to exist", expectedNewFilename)
+	}
+	jpNewFilePath := filepath.Join(dslDir, expectedJpNewFilename)
+	if _, err := os.Stat(jpNewFilePath); os.IsNotExist(err) {
+		t.Errorf("Expected new file %s to exist", expectedJpNewFilename)
+	}
+
+	// Check the app map has been updated
+	updatedAppMap, err := syncer.LoadAppMap()
+	if err != nil {
+		t.Fatalf("Failed to load updated app map: %v", err)
+	}
+
+	// Check app map contains the new filenames
+	foundUpdatedEn := false
+	foundUpdatedJp := false
+	for _, app := range updatedAppMap.Apps {
+		if app.AppID == "app-id-1" {
+			if app.Filename != expectedNewFilename {
+				t.Errorf("Expected app id app-id-1 to have filename %s, got %s",
+					expectedNewFilename, app.Filename)
+			}
+			foundUpdatedEn = true
+		}
+		if app.AppID == "app-id-2" {
+			if app.Filename != expectedJpNewFilename {
+				t.Errorf("Expected app id app-id-2 to have filename %s, got %s",
+					expectedJpNewFilename, app.Filename)
+			}
+			foundUpdatedJp = true
+		}
+	}
+
+	if !foundUpdatedEn {
+		t.Errorf("English app mapping not found in updated app map")
+	}
+	if !foundUpdatedJp {
+		t.Errorf("Japanese app mapping not found in updated app map")
+	}
+
+	// Check statistics
+	if stats.Total != 2 {
+		t.Errorf("Expected Total to be 2, got %d", stats.Total)
 	}
 }
