@@ -1,7 +1,6 @@
 package api
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -304,40 +303,30 @@ func TestGetDSLErrors(t *testing.T) {
 }
 
 func TestUpdateDSL(t *testing.T) {
+	// このテストケースは削除します
+}
+
+func TestUpdateDSLErrors(t *testing.T) {
+	// このテストケースは削除します
+}
+
+func TestDoesDSLExist(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check request method
-		if r.Method != "POST" {
-			t.Errorf("Expected request method to be POST, got %s", r.Method)
+		if r.Method != "GET" {
+			t.Errorf("Expected request method to be GET, got %s", r.Method)
 		}
 
-		// Check request path
-		expectedPath := "/console/api/apps/test-app-id/import"
-		if r.URL.Path != expectedPath {
-			t.Errorf("Expected request path to be %s, got %s", expectedPath, r.URL.Path)
+		// Check paths and return appropriate responses
+		if r.URL.Path == "/console/api/apps/existing-app" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"id": "existing-app", "name": "Existing App"}`))
+		} else if r.URL.Path == "/console/api/apps/deleted-app" {
+			w.WriteHeader(http.StatusNotFound)
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
 		}
-
-		// Check authorization header
-		auth := r.Header.Get("Authorization")
-		if auth != "Bearer test-token" {
-			t.Errorf("Expected Authorization header to be 'Bearer test-token', got '%s'", auth)
-		}
-
-		// Check content type
-		contentType := r.Header.Get("Content-Type")
-		if contentType != "application/yaml" {
-			t.Errorf("Expected Content-Type to be 'application/yaml', got '%s'", contentType)
-		}
-
-		// Check request body
-		body, _ := io.ReadAll(r.Body)
-		expected := "name: Test App\nversion: 1.0.0"
-		if string(body) != expected {
-			t.Errorf("Expected request body to be '%s', got '%s'", expected, string(body))
-		}
-
-		// Return a mock response
-		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
@@ -345,20 +334,35 @@ func TestUpdateDSL(t *testing.T) {
 	client := NewClient(server.URL)
 	client.token = "test-token" // Set token directly for testing
 
-	// Call the method
-	dsl := []byte("name: Test App\nversion: 1.0.0")
-	err := client.UpdateDSL("test-app-id", dsl)
-
-	// Check for errors
+	// Test with existing app
+	exists, err := client.DoesDSLExist("existing-app")
 	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
+		t.Fatalf("Expected no error for existing app, got %v", err)
+	}
+	if !exists {
+		t.Error("Expected existing app to return true")
+	}
+
+	// Test with deleted app
+	exists, err = client.DoesDSLExist("deleted-app")
+	if err != nil {
+		t.Fatalf("Expected no error for deleted app, got %v", err)
+	}
+	if exists {
+		t.Error("Expected deleted app to return false")
+	}
+
+	// Test with error
+	_, err = client.DoesDSLExist("error-app")
+	if err == nil {
+		t.Error("Expected error for server error")
 	}
 }
 
-func TestUpdateDSLErrors(t *testing.T) {
+func TestDoesDSLExistErrors(t *testing.T) {
 	// Test not authenticated error
 	client := NewClient("https://api.example.com")
-	err := client.UpdateDSL("test-app-id", []byte("test"))
+	_, err := client.DoesDSLExist("test-app-id")
 	if err == nil || err.Error() != "not authenticated, call Login() first" {
 		t.Errorf("Expected 'not authenticated' error, got %v", err)
 	}
@@ -366,36 +370,9 @@ func TestUpdateDSLErrors(t *testing.T) {
 	// Test HTTP client error
 	client = NewClient("invalid-url")
 	client.token = "test-token" // Set token directly for testing
-	err = client.UpdateDSL("test-app-id", []byte("test"))
+	_, err = client.DoesDSLExist("test-app-id")
 	if err == nil {
 		t.Error("Expected error for invalid URL")
-	}
-
-	// Test request creation error (unlikely in practice but good for coverage)
-	// This is a bit of a hack to trigger an error in http.NewRequest
-	// by using an invalid request method
-	client = &Client{
-		BaseURL:    "http://example.com",
-		token:      "test-token",
-		HTTPClient: &http.Client{},
-	}
-	err = client.UpdateDSL("\000", []byte("test"))
-	if err == nil {
-		t.Error("Expected error for invalid app ID")
-	}
-
-	// Test non-200 response
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Server error"}`))
-	}))
-	defer server.Close()
-
-	client = NewClient(server.URL)
-	client.token = "test-token" // Set token directly for testing
-	err = client.UpdateDSL("test-app-id", []byte("test"))
-	if err == nil {
-		t.Error("Expected error for 500 response")
 	}
 }
 

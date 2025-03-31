@@ -119,19 +119,58 @@ func (c *Client) GetAppInfo(appID string) (*AppInfo, error) {
 	// Debug output
 	fmt.Printf("Debug - Raw API Response: %s\n", string(body))
 
-	// Parse JSON response
-	var result struct {
-		Data AppInfo `json:"data"`
+	// Decode JSON directly to map to avoid mapping issues
+	var rawData map[string]interface{}
+	if err := json.Unmarshal(body, &rawData); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON to map: %w", err)
 	}
 
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	// Check for data field first
+	dataField, hasData := rawData["data"]
+	if hasData {
+		// If there's a data field, use that as our appData
+		if appData, ok := dataField.(map[string]interface{}); ok {
+			appInfo := &AppInfo{}
+			// Set ID and Name
+			if id, ok := appData["id"].(string); ok {
+				appInfo.ID = id
+			}
+			if name, ok := appData["name"].(string); ok {
+				appInfo.Name = name
+			}
+			// Get and set updated_at directly
+			if updatedAt, exists := appData["updated_at"]; exists {
+				appInfo.UpdatedAt = updatedAt
+				fmt.Printf("Debug - Found updated_at in data: %v (type: %T)\n", updatedAt, updatedAt)
+			} else {
+				fmt.Printf("Debug - updated_at field not found in data\n")
+			}
+			fmt.Printf("Debug - Constructed AppInfo from data: %+v\n", appInfo)
+			return appInfo, nil
+		}
 	}
 
-	// Output UpdatedAt field value (including type information)
-	fmt.Printf("Debug - UpdatedAt value: %v (type: %T)\n", result.Data.UpdatedAt, result.Data.UpdatedAt)
+	// Fallback to checking top-level fields (for backward compatibility)
+	appInfo := &AppInfo{}
 
-	return &result.Data, nil
+	// Set ID and Name from top-level
+	if id, ok := rawData["id"].(string); ok {
+		appInfo.ID = id
+	}
+	if name, ok := rawData["name"].(string); ok {
+		appInfo.Name = name
+	}
+
+	// Get and set updated_at directly from top-level
+	if updatedAt, exists := rawData["updated_at"]; exists {
+		appInfo.UpdatedAt = updatedAt
+		fmt.Printf("Debug - Found updated_at in raw response: %v (type: %T)\n", updatedAt, updatedAt)
+	} else {
+		fmt.Printf("Debug - updated_at field not found in response\n")
+	}
+
+	fmt.Printf("Debug - Constructed AppInfo: %+v\n", appInfo)
+	return appInfo, nil
 }
 
 // GetDSL fetches the DSL for a specific app from Dify
@@ -141,6 +180,8 @@ func (c *Client) GetDSL(appID string) ([]byte, error) {
 	}
 
 	url := fmt.Sprintf("%s/console/api/apps/%s/export?include_secret=true", c.BaseURL, appID)
+
+	fmt.Printf("Debug - Using export URL: %s\n", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -157,7 +198,7 @@ func (c *Client) GetDSL(appID string) ([]byte, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API returned error: status=%d, body=%s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API returned error: status=%d, url=%s, body=%s", resp.StatusCode, url, string(body))
 	}
 
 	var result struct {
@@ -171,34 +212,49 @@ func (c *Client) GetDSL(appID string) ([]byte, error) {
 	return []byte(result.Data), nil
 }
 
-// UpdateDSL updates the DSL for a specific app in Dify
-func (c *Client) UpdateDSL(appID string, dsl []byte) error {
+// DoesDSLExist checks if a DSL exists in Dify for the given app ID
+func (c *Client) DoesDSLExist(appID string) (bool, error) {
 	if c.token == "" {
-		return fmt.Errorf("not authenticated, call Login() first")
+		return false, fmt.Errorf("not authenticated, call Login() first")
 	}
 
-	url := fmt.Sprintf("%s/console/api/apps/%s/import", c.BaseURL, appID)
+	url := fmt.Sprintf("%s/console/api/apps/%s", c.BaseURL, appID)
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(dsl))
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return false, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
-	req.Header.Set("Content-Type", "application/yaml")
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to execute request: %w", err)
+		return false, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API returned error: status=%d, body=%s", resp.StatusCode, string(body))
+	// If status is 404, app doesn't exist
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
 	}
 
-	return nil
+	// If status is not 200 or 404, there was an error
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("API returned error: status=%d, url=%s, body=%s", resp.StatusCode, url, string(body))
+	}
+
+	// App exists
+	return true, nil
+}
+
+// Helper function for min
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // GetAppList fetches all applications from Dify
@@ -208,6 +264,8 @@ func (c *Client) GetAppList() ([]AppInfo, error) {
 	}
 
 	url := fmt.Sprintf("%s/console/api/apps", c.BaseURL)
+
+	fmt.Printf("Debug - Using app list URL: %s\n", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -225,7 +283,7 @@ func (c *Client) GetAppList() ([]AppInfo, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API returned error: status=%d, body=%s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API returned error: status=%d, url=%s, body=%s", resp.StatusCode, url, string(body))
 	}
 
 	// Save response body
@@ -237,13 +295,52 @@ func (c *Client) GetAppList() ([]AppInfo, error) {
 	// Debug output
 	fmt.Printf("Debug - GetAppList Raw API Response: %s\n", string(body))
 
-	var result struct {
-		Data []AppInfo `json:"data"`
+	// New implementation: use map for more flexible parsing
+	var rawData map[string]interface{}
+	if err := json.Unmarshal(body, &rawData); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON to map: %w", err)
 	}
 
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	// Get data array
+	dataInterface, hasData := rawData["data"]
+	if !hasData {
+		return nil, fmt.Errorf("API response does not contain 'data' field")
 	}
 
-	return result.Data, nil
+	dataArray, isArray := dataInterface.([]interface{})
+	if !isArray {
+		return nil, fmt.Errorf("API response 'data' is not an array")
+	}
+
+	// Create app info slice
+	apps := make([]AppInfo, 0, len(dataArray))
+
+	// Get each app's information
+	for _, item := range dataArray {
+		appData, isMap := item.(map[string]interface{})
+		if !isMap {
+			continue
+		}
+
+		app := AppInfo{}
+
+		// Set each field
+		if id, ok := appData["id"].(string); ok {
+			app.ID = id
+		}
+
+		if name, ok := appData["name"].(string); ok {
+			app.Name = name
+		}
+
+		// Get updated_at directly
+		if updatedAt, exists := appData["updated_at"]; exists {
+			app.UpdatedAt = updatedAt
+		}
+
+		apps = append(apps, app)
+	}
+
+	fmt.Printf("Debug - Parsed %d apps from response\n", len(apps))
+	return apps, nil
 }

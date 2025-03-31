@@ -24,12 +24,11 @@ func getEnvWithDefault(key, defaultValue string) string {
 
 // Command-line flags
 var (
-	difyBaseURL    = flag.String("base-url", "", "Dify API base URL (overrides env: DIFY_BASE_URL)")
-	dslDir         = flag.String("dsl-dir", "", "Directory containing DSL files (overrides env: DSL_DIRECTORY, default: dsl)")
-	appMapFile     = flag.String("app-map", "", "Path to app mapping file (overrides env: APP_MAP_FILE, default: app_map.json)")
-	dryRun         = flag.Bool("dry-run", false, "Perform a dry run without making any changes")
-	forceDirection = flag.String("force", "", "Force sync direction: 'upload', 'download', or empty for bidirectional")
-	verbose        = flag.Bool("verbose", false, "Enable verbose output")
+	difyBaseURL = flag.String("base-url", "", "Dify API base URL (overrides env: DIFY_BASE_URL)")
+	dslDir      = flag.String("dsl-dir", "", "Directory containing DSL files (overrides env: DSL_DIRECTORY, default: dsl)")
+	appMapFile  = flag.String("app-map", "", "Path to app mapping file (overrides env: APP_MAP_FILE, default: app_map.json)")
+	dryRun      = flag.Bool("dry-run", false, "Perform a dry run without making any changes")
+	verbose     = flag.Bool("verbose", false, "Enable verbose output")
 )
 
 // For testing purposes, we make createSyncer a variable so it can be replaced in tests
@@ -87,21 +86,15 @@ func loadConfigAndValidate() (*syncer.Config, error) {
 		return nil, fmt.Errorf("failed to resolve app map file path: %w", err)
 	}
 
-	// Validate force direction if provided
-	if *forceDirection != "" && *forceDirection != "upload" && *forceDirection != "download" {
-		return nil, fmt.Errorf("invalid force direction '%s'. Must be 'upload', 'download', or empty", *forceDirection)
-	}
-
 	// Create syncer config
 	config := &syncer.Config{
-		DifyBaseURL:    baseURL,
-		DifyEmail:      email,
-		DifyPassword:   password,
-		DSLDirectory:   dslDirPath,
-		AppMapFile:     appMapPath,
-		DryRun:         *dryRun,
-		ForceDirection: *forceDirection,
-		Verbose:        *verbose,
+		DifyBaseURL:  baseURL,
+		DifyEmail:    email,
+		DifyPassword: password,
+		DSLDirectory: dslDirPath,
+		AppMapFile:   appMapPath,
+		DryRun:       *dryRun,
+		Verbose:      *verbose,
 	}
 
 	return config, nil
@@ -115,10 +108,8 @@ func printInfo(config *syncer.Config) {
 	fmt.Printf("App Map File: %s\n", config.AppMapFile)
 	if config.DryRun {
 		fmt.Println("Mode: DRY RUN (no changes will be made)")
-	} else if config.ForceDirection != "" {
-		fmt.Printf("Mode: Force %s\n", config.ForceDirection)
 	} else {
-		fmt.Println("Mode: Bidirectional sync")
+		fmt.Println("Mode: Download")
 	}
 	fmt.Println()
 }
@@ -127,7 +118,6 @@ func printInfo(config *syncer.Config) {
 func printStats(stats *syncer.SyncStats, duration time.Duration) {
 	fmt.Println("\nSync Summary:")
 	fmt.Printf("Total apps: %d\n", stats.Total)
-	fmt.Printf("Uploads: %d\n", stats.Uploads)
 	fmt.Printf("Downloads: %d\n", stats.Downloads)
 	fmt.Printf("No action (in sync): %d\n", stats.NoAction)
 	fmt.Printf("Errors: %d\n", stats.Errors)

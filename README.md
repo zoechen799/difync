@@ -1,11 +1,11 @@
 # Difync
 
-Difync is a command-line tool for synchronizing [Dify.AI](https://dify.ai) workflow DSLs (YAML) between your local filesystem and Dify's API. It allows you to version control your Dify workflows using Git while keeping them in sync with the Dify platform.
+Difync is a command-line tool for downloading [Dify.AI](https://dify.ai) workflow DSLs (YAML) from Dify's API to your local filesystem. It allows you to version control your Dify workflows using Git.
 
 ## Features
 
-- Bidirectional synchronization based on modification time
-- Force upload or download direction
+- Download workflows from Dify to your local filesystem
+- Detect and remove local files for workflows deleted in Dify
 - Dry run mode for testing without making changes
 - Support for multiple Dify applications
 - Detailed logging and statistics
@@ -40,12 +40,6 @@ go build -o difync ./cmd/difync
 
 # Override base URL from command line
 ./difync --base-url https://dify.example.com
-
-# Force upload local DSL files to Dify
-./difync --force upload
-
-# Force download DSL files from Dify to local
-./difync --force download
 
 # Perform a dry run without making any changes
 ./difync --dry-run
@@ -96,14 +90,14 @@ The DSL files should be placed in the DSL directory (`dsl/` by default).
 
 ## How It Works
 
-Difync synchronizes files based on modification time:
+Difync downloads workflow files from Dify:
 
 1. It checks the local DSL file's modification time
 2. It fetches the Dify application's last update time
 3. It compares the two timestamps:
-   - If the local file is newer, it uploads to Dify
    - If the Dify app is newer, it downloads to local
-   - If they're the same, it does nothing
+   - If they're the same or local is newer, it does nothing
+4. It also checks if any workflows have been deleted from Dify and removes the corresponding local files
 
 ## Command-Line Options
 
@@ -116,7 +110,6 @@ Options:
   --dsl-dir string    Directory containing DSL files (default "dsl")
   --app-map string    Path to app mapping file (default "app_map.json")
   --dry-run           Perform a dry run without making any changes
-  --force string      Force sync direction: 'upload', 'download', or empty for bidirectional
   --verbose           Enable verbose output
 ```
 

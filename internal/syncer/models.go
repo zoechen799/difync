@@ -33,9 +33,6 @@ const (
 	// ActionNone indicates no sync was needed (files already in sync)
 	ActionNone SyncAction = "none"
 
-	// ActionUpload indicates the local file was uploaded to Dify
-	ActionUpload SyncAction = "upload"
-
 	// ActionDownload indicates the Dify DSL was downloaded to local file
 	ActionDownload SyncAction = "download"
 
@@ -46,7 +43,6 @@ const (
 // SyncStats represents statistics about a sync operation
 type SyncStats struct {
 	Total     int
-	Uploads   int
 	Downloads int
 	NoAction  int
 	Errors    int

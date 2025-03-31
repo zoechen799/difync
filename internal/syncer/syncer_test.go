@@ -233,14 +233,15 @@ func TestSyncApp(t *testing.T) {
 		t.Fatalf("Failed to change file time: %v", err)
 	}
 
-	// Test upload case (local file is newer)
+	// Test local file modification case
 	result := syncer.SyncApp(AppMapping{
 		Filename: "test.yaml",
 		AppID:    "test-app-id",
 	})
 
-	if result.Action != ActionUpload {
-		t.Errorf("Expected Action to be upload, got %s", result.Action)
+	// Local files newer than remote are ignored
+	if result.Action != ActionNone {
+		t.Errorf("Expected Action to be none, got %s", result.Action)
 	}
 
 	if !result.Success {
@@ -269,41 +270,6 @@ func TestDryRun(t *testing.T) {
 
 	if !result.Success {
 		t.Errorf("Expected Success to be true in dry run mode")
-	}
-}
-
-func TestForceDirection(t *testing.T) {
-	syncer, _, _, _, _, cleanup := setupTestSyncerAndServer(t)
-	defer cleanup()
-
-	// Use type assertion to get the concrete type
-	defaultSyncer, ok := syncer.(*DefaultSyncer)
-	if !ok {
-		t.Fatalf("Failed to convert syncer to *DefaultSyncer")
-	}
-
-	// Force download
-	defaultSyncer.config.ForceDirection = "download"
-
-	result := syncer.SyncApp(AppMapping{
-		Filename: "test.yaml",
-		AppID:    "test-app-id",
-	})
-
-	if result.Action != ActionDownload {
-		t.Errorf("Expected Action to be download, got %s", result.Action)
-	}
-
-	// Force upload
-	defaultSyncer.config.ForceDirection = "upload"
-
-	result = syncer.SyncApp(AppMapping{
-		Filename: "test.yaml",
-		AppID:    "test-app-id",
-	})
-
-	if result.Action != ActionUpload {
-		t.Errorf("Expected Action to be upload, got %s", result.Action)
 	}
 }
 
@@ -381,14 +347,13 @@ func TestFileErrors(t *testing.T) {
 
 func TestNewSyncer(t *testing.T) {
 	config := Config{
-		DifyBaseURL:    "https://example.com",
-		DifyEmail:      "test@example.com",
-		DifyPassword:   "testpassword",
-		DSLDirectory:   "/path/to/dsl",
-		AppMapFile:     "/path/to/app_map.json",
-		DryRun:         true,
-		ForceDirection: "upload",
-		Verbose:        true,
+		DifyBaseURL:  "https://example.com",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
+		DSLDirectory: "/path/to/dsl",
+		AppMapFile:   "/path/to/app_map.json",
+		DryRun:       true,
+		Verbose:      true,
 	}
 
 	syncer := NewSyncer(config)
@@ -427,7 +392,6 @@ func TestSyncAction(t *testing.T) {
 	// Test SyncAction string representation
 	actions := map[SyncAction]string{
 		ActionNone:     "none",
-		ActionUpload:   "upload",
 		ActionDownload: "download",
 		ActionError:    "error",
 	}
@@ -550,109 +514,6 @@ func TestDownloadFromRemoteWriteError(t *testing.T) {
 
 	if result.Action != ActionDownload {
 		t.Errorf("Expected Action to be download, got %s", result.Action)
-	}
-
-	if result.Success {
-		t.Error("Expected Success to be false")
-	}
-
-	if result.Error == nil {
-		t.Error("Expected Error to be set")
-	}
-}
-
-func TestUploadToRemoteErrors(t *testing.T) {
-	// Create a temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "difync-test-")
-	if err != nil {
-		t.Fatalf("Failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Create a test server that returns an error
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Server error"}`))
-	}))
-	defer server.Close()
-
-	// Create a test file
-	localPath := filepath.Join(tmpDir, "test.yaml")
-	err = os.WriteFile(localPath, []byte("name: Test App\nversion: 1.0.0"), 0644)
-	if err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	// Create syncer with test configuration
-	config := Config{
-		DifyBaseURL:  server.URL,
-		DifyEmail:    "test@example.com",
-		DifyPassword: "testpassword",
-		DSLDirectory: tmpDir,
-	}
-	syncer := NewSyncer(config)
-
-	// Test uploadToRemote with API error
-	defaultSyncer, ok := syncer.(*DefaultSyncer)
-	if !ok {
-		t.Fatalf("Failed to convert syncer to *DefaultSyncer")
-	}
-
-	result := defaultSyncer.uploadToRemote(AppMapping{
-		Filename: "test.yaml",
-		AppID:    "test-app-id",
-	}, localPath)
-
-	if result.Action != ActionUpload {
-		t.Errorf("Expected Action to be upload, got %s", result.Action)
-	}
-
-	if result.Success {
-		t.Error("Expected Success to be false")
-	}
-
-	if result.Error == nil {
-		t.Error("Expected Error to be set")
-	}
-}
-
-func TestUploadToRemoteReadError(t *testing.T) {
-	// Create a temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "difync-test-")
-	if err != nil {
-		t.Fatalf("Failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Create a server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	// Create syncer with test configuration
-	config := Config{
-		DifyBaseURL:  server.URL,
-		DifyEmail:    "test@example.com",
-		DifyPassword: "testpassword",
-		DSLDirectory: tmpDir,
-	}
-	syncer := NewSyncer(config)
-
-	// Test uploadToRemote with file read error (nonexistent file)
-	defaultSyncer, ok := syncer.(*DefaultSyncer)
-	if !ok {
-		t.Fatalf("Failed to convert syncer to *DefaultSyncer")
-	}
-
-	nonexistentPath := filepath.Join(tmpDir, "nonexistent.yaml")
-	result := defaultSyncer.uploadToRemote(AppMapping{
-		Filename: "nonexistent.yaml",
-		AppID:    "test-app-id",
-	}, nonexistentPath)
-
-	if result.Action != ActionUpload {
-		t.Errorf("Expected Action to be upload, got %s", result.Action)
 	}
 
 	if result.Success {
@@ -1187,5 +1048,220 @@ func TestInitializeAppMapWithJapaneseNames(t *testing.T) {
 		if expectedFilename != app.Filename {
 			t.Errorf("For app ID %s: expected filename %s, got %s", app.AppID, expectedFilename, app.Filename)
 		}
+	}
+}
+
+func TestSyncAppWithDeletedApp(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "difync-test-")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test file
+	localPath := filepath.Join(tmpDir, "test.yaml")
+	err = os.WriteFile(localPath, []byte("name: Test App\nversion: 1.0.0"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Create a server that simulates a deleted app
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Handle login request
+		if r.URL.Path == "/console/api/login" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"status": "success",
+				"data": {
+					"access_token": "test-token"
+				}
+			}`))
+			return
+		}
+
+		// Handle app info request for deleted app
+		if r.URL.Path == "/console/api/apps/deleted-app-id" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		// Default response
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// Create syncer with test configuration
+	config := Config{
+		DifyBaseURL:  server.URL,
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
+		DSLDirectory: tmpDir,
+	}
+	syncer := NewSyncer(config)
+
+	// Test SyncApp with deleted app
+	result := syncer.SyncApp(AppMapping{
+		Filename: "test.yaml",
+		AppID:    "deleted-app-id",
+	})
+
+	if result.Action != ActionNone {
+		t.Errorf("Expected Action to be none for deleted app, got %s", result.Action)
+	}
+
+	if !result.Success {
+		t.Error("Expected Success to be true for deleted app")
+	}
+}
+
+func TestSyncAllWithDeletedApps(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "difync-test-")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create DSL directory
+	dslDir := filepath.Join(tmpDir, "dsl")
+	err = os.Mkdir(dslDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create DSL directory: %v", err)
+	}
+
+	// Create test files
+	file1 := filepath.Join(dslDir, "app1.yaml")
+	err = os.WriteFile(file1, []byte("name: App 1\nversion: 1.0.0"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	file2 := filepath.Join(dslDir, "app2.yaml")
+	err = os.WriteFile(file2, []byte("name: App 2\nversion: 1.0.0"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Create app map file
+	appMapFile := filepath.Join(tmpDir, "app_map.json")
+	appMap := AppMap{
+		Apps: []AppMapping{
+			{
+				Filename: "app1.yaml",
+				AppID:    "app-id-1",
+			},
+			{
+				Filename: "app2.yaml",
+				AppID:    "app-id-2", // This one will be deleted
+			},
+		},
+	}
+
+	appMapData, err := json.Marshal(appMap)
+	if err != nil {
+		t.Fatalf("Failed to marshal app map: %v", err)
+	}
+
+	err = os.WriteFile(appMapFile, appMapData, 0644)
+	if err != nil {
+		t.Fatalf("Failed to write app map file: %v", err)
+	}
+
+	// Create a server that simulates one deleted app
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Handle login request
+		if r.URL.Path == "/console/api/login" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"status": "success",
+				"data": {
+					"access_token": "test-token"
+				}
+			}`))
+			return
+		}
+
+		// App 2 is deleted
+		if strings.Contains(r.URL.Path, "app-id-2") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		// Other apps exist
+		if strings.Contains(r.URL.Path, "/export") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"data": "name: App 1\nversion: 1.0.0"}`))
+			return
+		}
+
+		// Handle app info request for app 1
+		if r.URL.Path == "/console/api/apps/app-id-1" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": {
+					"id": "app-id-1",
+					"name": "App 1",
+					"updated_at": "2023-01-01T12:00:00Z"
+				}
+			}`))
+			return
+		}
+
+		// Default response
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	// Create syncer with test configuration
+	config := Config{
+		DifyBaseURL:  server.URL,
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
+		DSLDirectory: dslDir,
+		AppMapFile:   appMapFile,
+		Verbose:      true,
+	}
+	syncer := NewSyncer(config)
+
+	// Run SyncAll
+	stats, err := syncer.SyncAll()
+	if err != nil {
+		t.Fatalf("SyncAll failed: %v", err)
+	}
+
+	// Check that we have one download (for the deleted app)
+	if stats.Downloads != 1 {
+		t.Errorf("Expected 1 download (deleted app), got %d", stats.Downloads)
+	}
+
+	// Check that app2.yaml has been deleted
+	if _, err := os.Stat(file2); !os.IsNotExist(err) {
+		t.Error("Expected app2.yaml to be deleted")
+	}
+
+	// Check that app map has been updated
+	var updatedAppMap AppMap
+	updatedAppMapData, err := os.ReadFile(appMapFile)
+	if err != nil {
+		t.Fatalf("Failed to read updated app map file: %v", err)
+	}
+
+	err = json.Unmarshal(updatedAppMapData, &updatedAppMap)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal updated app map: %v", err)
+	}
+
+	if len(updatedAppMap.Apps) != 1 {
+		t.Errorf("Expected 1 app in updated app map, got %d", len(updatedAppMap.Apps))
+	}
+
+	if len(updatedAppMap.Apps) > 0 && updatedAppMap.Apps[0].AppID != "app-id-1" {
+		t.Errorf("Expected app-id-1 to remain in app map, got %s", updatedAppMap.Apps[0].AppID)
 	}
 }

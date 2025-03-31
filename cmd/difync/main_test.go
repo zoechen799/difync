@@ -51,7 +51,6 @@ func TestFlags(t *testing.T) {
 	dslDir := flag.String("dsl-dir", "", "Directory containing DSL files (overrides env: DSL_DIRECTORY, default: dsl)")
 	appMapFile := flag.String("app-map", "", "Path to app mapping file (overrides env: APP_MAP_FILE, default: app_map.json)")
 	dryRun := flag.Bool("dry-run", false, "Perform a dry run without making any changes")
-	forceDirection := flag.String("force", "", "Force sync direction: 'upload', 'download', or empty for bidirectional")
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 
 	// Parse test args
@@ -60,7 +59,6 @@ func TestFlags(t *testing.T) {
 		"-dsl-dir", "test-dsl",
 		"-app-map", "test-map.json",
 		"-dry-run",
-		"-force", "upload",
 		"-verbose",
 	})
 	if err != nil {
@@ -82,10 +80,6 @@ func TestFlags(t *testing.T) {
 
 	if !*dryRun {
 		t.Errorf("Expected dry-run to be true")
-	}
-
-	if *forceDirection != "upload" {
-		t.Errorf("Expected force to be 'upload', got '%s'", *forceDirection)
 	}
 
 	if !*verbose {
@@ -124,7 +118,6 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	dslDir = flag.String("dsl-dir", "", "Directory containing DSL files (overrides env: DSL_DIRECTORY, default: dsl)")
 	appMapFile = flag.String("app-map", "", "Path to app mapping file (overrides env: APP_MAP_FILE, default: app_map.json)")
 	dryRun = flag.Bool("dry-run", false, "Perform a dry run without making any changes")
-	forceDirection = flag.String("force", "", "Force sync direction: 'upload', 'download', or empty for bidirectional")
 	verbose = flag.Bool("verbose", false, "Enable verbose output")
 
 	// Test with missing required parameters
@@ -140,7 +133,6 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	dslDir = flag.String("dsl-dir", "", "")
 	appMapFile = flag.String("app-map", "", "")
 	dryRun = flag.Bool("dry-run", false, "")
-	forceDirection = flag.String("force", "", "")
 	verbose = flag.Bool("verbose", false, "")
 
 	flag.CommandLine.Parse([]string{"-base-url", "https://test.example.com"})
@@ -155,7 +147,6 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	dslDir = flag.String("dsl-dir", "", "")
 	appMapFile = flag.String("app-map", "", "")
 	dryRun = flag.Bool("dry-run", false, "")
-	forceDirection = flag.String("force", "", "")
 	verbose = flag.Bool("verbose", false, "")
 
 	flag.CommandLine.Parse([]string{
@@ -194,7 +185,6 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	dslDir = flag.String("dsl-dir", "", "")
 	appMapFile = flag.String("app-map", "", "")
 	dryRun = flag.Bool("dry-run", false, "")
-	forceDirection = flag.String("force", "", "")
 	verbose = flag.Bool("verbose", false, "")
 
 	flag.CommandLine.Parse([]string{})
@@ -221,41 +211,18 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	if config.DifyPassword != "envpassword" {
 		t.Errorf("Expected DifyPassword to be 'envpassword', got '%s'", config.DifyPassword)
 	}
-
-	// Test invalid force direction
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	difyBaseURL = flag.String("base-url", "", "")
-	dslDir = flag.String("dsl-dir", "", "")
-	appMapFile = flag.String("app-map", "", "")
-	dryRun = flag.Bool("dry-run", false, "")
-	forceDirection = flag.String("force", "", "")
-	verbose = flag.Bool("verbose", false, "")
-
-	flag.CommandLine.Parse([]string{
-		"-base-url", "https://test.example.com",
-		"-force", "invalid",
-	})
-
-	os.Setenv("DIFY_EMAIL", "test@example.com")
-	os.Setenv("DIFY_PASSWORD", "testpassword")
-
-	_, err = loadConfigAndValidate()
-	if err == nil {
-		t.Error("Expected error for invalid force direction")
-	}
 }
 
 func TestPrintInfo(t *testing.T) {
 	// This is mostly a visual test, we just check that it doesn't panic
 	config := &syncer.Config{
-		DifyBaseURL:    "https://test.example.com",
-		DifyEmail:      "test@example.com",
-		DifyPassword:   "testpassword",
-		DSLDirectory:   "/path/to/dsl",
-		AppMapFile:     "/path/to/app_map.json",
-		DryRun:         true,
-		ForceDirection: "upload",
-		Verbose:        true,
+		DifyBaseURL:  "https://test.example.com",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
+		DSLDirectory: "/path/to/dsl",
+		AppMapFile:   "/path/to/app_map.json",
+		DryRun:       true,
+		Verbose:      true,
 	}
 
 	// Should not panic
@@ -266,9 +233,8 @@ func TestPrintStats(t *testing.T) {
 	// This is mostly a visual test, we just check that it doesn't panic
 	stats := &syncer.SyncStats{
 		Total:     10,
-		Uploads:   3,
 		Downloads: 2,
-		NoAction:  4,
+		NoAction:  7,
 		Errors:    1,
 		StartTime: time.Now().Add(-1 * time.Minute),
 		EndTime:   time.Now(),
@@ -327,9 +293,8 @@ func TestRunSync(t *testing.T) {
 		return &MockSyncer{
 			stats: &syncer.SyncStats{
 				Total:     2,
-				Uploads:   1,
 				Downloads: 0,
-				NoAction:  1,
+				NoAction:  2,
 				Errors:    0,
 				StartTime: time.Now().Add(-1 * time.Second),
 				EndTime:   time.Now(),
@@ -359,7 +324,6 @@ func TestRunSync(t *testing.T) {
 		return &MockSyncer{
 			stats: &syncer.SyncStats{
 				Total:     2,
-				Uploads:   0,
 				Downloads: 0,
 				NoAction:  0,
 				Errors:    2,
@@ -394,8 +358,3 @@ func TestRunSync(t *testing.T) {
 		t.Errorf("Expected exit code 1, got %d", exitCode)
 	}
 }
-
-// Since main() itself is hard to test directly without complicating the code
-// or using advanced techniques like function monkeypatching,
-// we'll leave full main() testing to manual testing or integration tests.
-// However, we can test specific parts of the logic in separate functions.
