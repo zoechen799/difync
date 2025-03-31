@@ -10,6 +10,8 @@ Difync is a command-line tool for synchronizing [Dify.AI](https://dify.ai) workf
 - Support for multiple Dify applications
 - Detailed logging and statistics
 - Environment variables via `.env` file
+- Internationalization support for filenames (including Japanese characters)
+- Automatic filename deduplication for apps with identical names
 
 ## Installation
 
@@ -30,6 +32,9 @@ go build -o difync ./cmd/difync
 ## Usage
 
 ```bash
+# Initialize app map and download DSL files
+./difync init
+
 # Basic usage (using credentials from .env file)
 ./difync
 
@@ -85,6 +90,8 @@ Difync requires an app mapping file (`app_map.json` by default) that maps local 
 }
 ```
 
+You can automatically generate this file by running `./difync init`, which will download all available apps and create the mapping file.
+
 The DSL files should be placed in the DSL directory (`dsl/` by default).
 
 ## How It Works
@@ -101,12 +108,16 @@ Difync synchronizes files based on modification time:
 ## Command-Line Options
 
 ```
---base-url string   Dify API base URL (overrides env: DIFY_BASE_URL)
---dsl-dir string    Directory containing DSL files (default "dsl")
---app-map string    Path to app mapping file (default "app_map.json")
---dry-run           Perform a dry run without making any changes
---force string      Force sync direction: 'upload', 'download', or empty for bidirectional
---verbose           Enable verbose output
+Commands:
+  init             Initialize app map and download all DSL files
+
+Options:
+  --base-url string   Dify API base URL (overrides env: DIFY_BASE_URL)
+  --dsl-dir string    Directory containing DSL files (default "dsl")
+  --app-map string    Path to app mapping file (default "app_map.json")
+  --dry-run           Perform a dry run without making any changes
+  --force string      Force sync direction: 'upload', 'download', or empty for bidirectional
+  --verbose           Enable verbose output
 ```
 
 Note: Email and password must be set in environment variables (DIFY_EMAIL and DIFY_PASSWORD).
