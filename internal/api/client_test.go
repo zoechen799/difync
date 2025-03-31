@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -23,6 +24,11 @@ func TestNewClient(t *testing.T) {
 
 	if client.HTTPClient == nil {
 		t.Error("Expected HTTPClient to be initialized")
+	}
+
+	// Check default timeout
+	if client.HTTPClient.Timeout != 30*time.Second {
+		t.Errorf("Expected timeout to be 30s, got %v", client.HTTPClient.Timeout)
 	}
 }
 
@@ -84,6 +90,42 @@ func TestGetAppInfo(t *testing.T) {
 	}
 }
 
+func TestGetAppInfoErrors(t *testing.T) {
+	// Test HTTP client error
+	client := NewClient("invalid-url", "test-token")
+	_, err := client.GetAppInfo("test-app-id")
+	if err == nil {
+		t.Error("Expected error for invalid URL")
+	}
+
+	// Test non-200 response
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error": "App not found"}`))
+	}))
+	defer server.Close()
+
+	client = NewClient(server.URL, "test-token")
+	_, err = client.GetAppInfo("test-app-id")
+	if err == nil {
+		t.Error("Expected error for 404 response")
+	}
+
+	// Test invalid JSON response
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`invalid json`))
+	}))
+	defer server.Close()
+
+	client = NewClient(server.URL, "test-token")
+	_, err = client.GetAppInfo("test-app-id")
+	if err == nil {
+		t.Error("Expected error for invalid JSON response")
+	}
+}
+
 func TestGetDSL(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +170,28 @@ func TestGetDSL(t *testing.T) {
 	}
 }
 
+func TestGetDSLErrors(t *testing.T) {
+	// Test HTTP client error
+	client := NewClient("invalid-url", "test-token")
+	_, err := client.GetDSL("test-app-id")
+	if err == nil {
+		t.Error("Expected error for invalid URL")
+	}
+
+	// Test non-200 response
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error": "DSL not found"}`))
+	}))
+	defer server.Close()
+
+	client = NewClient(server.URL, "test-token")
+	_, err = client.GetDSL("test-app-id")
+	if err == nil {
+		t.Error("Expected error for 404 response")
+	}
+}
+
 func TestUpdateDSL(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +217,13 @@ func TestUpdateDSL(t *testing.T) {
 			t.Errorf("Expected Content-Type to be 'application/yaml', got '%s'", contentType)
 		}
 
+		// Check request body
+		body, _ := io.ReadAll(r.Body)
+		expected := "name: Test App\nversion: 1.0.0"
+		if string(body) != expected {
+			t.Errorf("Expected request body to be '%s', got '%s'", expected, string(body))
+		}
+
 		// Return a mock response
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -168,5 +239,40 @@ func TestUpdateDSL(t *testing.T) {
 	// Check for errors
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
+	}
+}
+
+func TestUpdateDSLErrors(t *testing.T) {
+	// Test HTTP client error
+	client := NewClient("invalid-url", "test-token")
+	err := client.UpdateDSL("test-app-id", []byte("test"))
+	if err == nil {
+		t.Error("Expected error for invalid URL")
+	}
+
+	// Test request creation error (unlikely in practice but good for coverage)
+	// This is a bit of a hack to trigger an error in http.NewRequest
+	// by using an invalid request method
+	client = &Client{
+		BaseURL:    "http://example.com",
+		Token:      "test-token",
+		HTTPClient: &http.Client{},
+	}
+	err = client.UpdateDSL("\000", []byte("test"))
+	if err == nil {
+		t.Error("Expected error for invalid app ID")
+	}
+
+	// Test non-200 response
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "Server error"}`))
+	}))
+	defer server.Close()
+
+	client = NewClient(server.URL, "test-token")
+	err = client.UpdateDSL("test-app-id", []byte("test"))
+	if err == nil {
+		t.Error("Expected error for 500 response")
 	}
 }

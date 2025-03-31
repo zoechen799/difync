@@ -10,6 +10,13 @@ import (
 	"github.com/pepabo/difync/internal/api"
 )
 
+// Syncer defines the interface for syncing between local DSL files and Dify
+type Syncer interface {
+	LoadAppMap() (*AppMap, error)
+	SyncAll() (*SyncStats, error)
+	SyncApp(app AppMapping) SyncResult
+}
+
 // Config represents the configuration for the syncer
 type Config struct {
 	DifyBaseURL    string
@@ -21,22 +28,22 @@ type Config struct {
 	Verbose        bool
 }
 
-// Syncer handles the synchronization between local DSL files and Dify
-type Syncer struct {
+// DefaultSyncer handles the synchronization between local DSL files and Dify
+type DefaultSyncer struct {
 	config Config
 	client *api.Client
 }
 
 // NewSyncer creates a new syncer with the given configuration
-func NewSyncer(config Config) *Syncer {
-	return &Syncer{
+func NewSyncer(config Config) Syncer {
+	return &DefaultSyncer{
 		config: config,
 		client: api.NewClient(config.DifyBaseURL, config.DifyToken),
 	}
 }
 
 // LoadAppMap loads the app map from the app map file
-func (s *Syncer) LoadAppMap() (*AppMap, error) {
+func (s *DefaultSyncer) LoadAppMap() (*AppMap, error) {
 	file, err := os.Open(s.config.AppMapFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open app map file: %w", err)
@@ -52,7 +59,7 @@ func (s *Syncer) LoadAppMap() (*AppMap, error) {
 }
 
 // SyncAll synchronizes all apps in the app map
-func (s *Syncer) SyncAll() (*SyncStats, error) {
+func (s *DefaultSyncer) SyncAll() (*SyncStats, error) {
 	appMap, err := s.LoadAppMap()
 	if err != nil {
 		return nil, err
@@ -90,7 +97,7 @@ func (s *Syncer) SyncAll() (*SyncStats, error) {
 }
 
 // SyncApp synchronizes a single app
-func (s *Syncer) SyncApp(app AppMapping) SyncResult {
+func (s *DefaultSyncer) SyncApp(app AppMapping) SyncResult {
 	result := SyncResult{
 		Filename:  app.Filename,
 		AppID:     app.AppID,
@@ -137,7 +144,7 @@ func (s *Syncer) SyncApp(app AppMapping) SyncResult {
 }
 
 // uploadToRemote uploads the local DSL file to Dify
-func (s *Syncer) uploadToRemote(app AppMapping, localPath string) SyncResult {
+func (s *DefaultSyncer) uploadToRemote(app AppMapping, localPath string) SyncResult {
 	result := SyncResult{
 		Filename:  app.Filename,
 		AppID:     app.AppID,
@@ -169,7 +176,7 @@ func (s *Syncer) uploadToRemote(app AppMapping, localPath string) SyncResult {
 }
 
 // downloadFromRemote downloads the DSL from Dify to the local file
-func (s *Syncer) downloadFromRemote(app AppMapping, localPath string) SyncResult {
+func (s *DefaultSyncer) downloadFromRemote(app AppMapping, localPath string) SyncResult {
 	result := SyncResult{
 		Filename:  app.Filename,
 		AppID:     app.AppID,

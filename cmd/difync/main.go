@@ -32,12 +32,14 @@ var (
 	verbose        = flag.Bool("verbose", false, "Enable verbose output")
 )
 
-func main() {
-	// Load .env file if it exists
-	_ = godotenv.Load()
+// For testing purposes, we make createSyncer a variable so it can be replaced in tests
+var createSyncer = func(config syncer.Config) syncer.Syncer {
+	return syncer.NewSyncer(config)
+}
 
-	flag.Parse()
-
+// loadConfigAndValidate loads configuration from flags and environment variables
+// and validates the configuration
+func loadConfigAndValidate() (*syncer.Config, error) {
 	// Get values from environment if not set via flags
 	baseURL := *difyBaseURL
 	if baseURL == "" {
@@ -63,31 +65,32 @@ func main() {
 
 	// Validate required parameters
 	if baseURL == "" {
-		fmt.Println("Error: Dify base URL is required. Set with --base-url or DIFY_BASE_URL env var.")
-		os.Exit(1)
+		return nil, fmt.Errorf("Dify base URL is required. Set with --base-url or DIFY_BASE_URL env var")
 	}
 
 	if token == "" {
-		fmt.Println("Error: Dify API token is required. Set with --token or DIFY_API_TOKEN env var.")
-		os.Exit(1)
+		return nil, fmt.Errorf("Dify API token is required. Set with --token or DIFY_API_TOKEN env var")
 	}
 
 	// Resolve DSL directory path
 	dslDirPath, err := filepath.Abs(dslDirectory)
 	if err != nil {
-		fmt.Printf("Error: Failed to resolve DSL directory path: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("Failed to resolve DSL directory path: %w", err)
 	}
 
 	// Resolve app map file path
 	appMapPath, err := filepath.Abs(appMap)
 	if err != nil {
-		fmt.Printf("Error: Failed to resolve app map file path: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("Failed to resolve app map file path: %w", err)
+	}
+
+	// Validate force direction if provided
+	if *forceDirection != "" && *forceDirection != "upload" && *forceDirection != "download" {
+		return nil, fmt.Errorf("Invalid force direction '%s'. Must be 'upload', 'download', or empty", *forceDirection)
 	}
 
 	// Create syncer config
-	config := syncer.Config{
+	config := &syncer.Config{
 		DifyBaseURL:    baseURL,
 		DifyToken:      token,
 		DSLDirectory:   dslDirPath,
@@ -97,41 +100,27 @@ func main() {
 		Verbose:        *verbose,
 	}
 
-	// Validate force direction if provided
-	if *forceDirection != "" && *forceDirection != "upload" && *forceDirection != "download" {
-		fmt.Printf("Error: Invalid force direction '%s'. Must be 'upload', 'download', or empty.\n", *forceDirection)
-		os.Exit(1)
-	}
+	return config, nil
+}
 
-	// Create and run syncer
-	syncr := syncer.NewSyncer(config)
-
-	// Print info
+// printInfo prints information about the sync operation
+func printInfo(config *syncer.Config) {
 	fmt.Println("Difync - Dify.AI DSL Synchronizer")
 	fmt.Println("----------------------------")
-	fmt.Printf("DSL Directory: %s\n", dslDirPath)
-	fmt.Printf("App Map File: %s\n", appMapPath)
-	if *dryRun {
+	fmt.Printf("DSL Directory: %s\n", config.DSLDirectory)
+	fmt.Printf("App Map File: %s\n", config.AppMapFile)
+	if config.DryRun {
 		fmt.Println("Mode: DRY RUN (no changes will be made)")
-	} else if *forceDirection != "" {
-		fmt.Printf("Mode: Force %s\n", *forceDirection)
+	} else if config.ForceDirection != "" {
+		fmt.Printf("Mode: Force %s\n", config.ForceDirection)
 	} else {
 		fmt.Println("Mode: Bidirectional sync")
 	}
 	fmt.Println()
+}
 
-	// Start sync
-	fmt.Println("Starting sync...")
-	startTime := time.Now()
-
-	stats, err := syncr.SyncAll()
-	if err != nil {
-		fmt.Printf("Error during sync: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Print summary
-	duration := time.Since(startTime)
+// printStats prints statistics about the sync operation
+func printStats(stats *syncer.SyncStats, duration time.Duration) {
 	fmt.Println("\nSync Summary:")
 	fmt.Printf("Total apps: %d\n", stats.Total)
 	fmt.Printf("Uploads: %d\n", stats.Uploads)
@@ -139,9 +128,56 @@ func main() {
 	fmt.Printf("No action (in sync): %d\n", stats.NoAction)
 	fmt.Printf("Errors: %d\n", stats.Errors)
 	fmt.Printf("Duration: %v\n", duration)
+}
 
-	// Exit with non-zero status if there were errors
+// runSync runs the sync operation
+func runSync(config *syncer.Config) (int, error) {
+	// Create syncer
+	syncr := createSyncer(*config)
+
+	// Print info
+	printInfo(config)
+
+	// Start sync
+	fmt.Println("Starting sync...")
+	startTime := time.Now()
+
+	stats, err := syncr.SyncAll()
+	if err != nil {
+		return 1, fmt.Errorf("Error during sync: %w", err)
+	}
+
+	// Print summary
+	duration := time.Since(startTime)
+	printStats(stats, duration)
+
+	// Return non-zero status code if there were errors
 	if stats.Errors > 0 {
+		return 1, nil
+	}
+
+	return 0, nil
+}
+
+func main() {
+	// Load .env file if it exists
+	_ = godotenv.Load()
+
+	flag.Parse()
+
+	// Load and validate configuration
+	config, err := loadConfigAndValidate()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Run sync
+	exitCode, err := runSync(config)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	os.Exit(exitCode)
 }

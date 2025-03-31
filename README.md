@@ -109,9 +109,24 @@ Difync synchronizes files based on modification time:
 --verbose           Enable verbose output
 ```
 
-## Git Integration
+## Development
 
-The DSL directory (`dsl/`) and app mapping file (`app_map.json`) are included in `.gitignore` to prevent sensitive or frequently changing files from being committed to the repository. These files should be managed separately by each developer.
+### Testing
+
+Run the tests:
+
+```bash
+go test ./...
+```
+
+Generate test coverage report:
+
+```bash
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out -o coverage.html
+```
+
+Current test coverage: ~78%
 
 ## License
 
