@@ -132,8 +132,6 @@ go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out -o coverage.html
 ```
 
-Current test coverage: ~78%
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details. 
