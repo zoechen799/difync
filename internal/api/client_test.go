@@ -162,9 +162,14 @@ func TestGetAppInfo(t *testing.T) {
 		t.Errorf("Expected Name to be 'Test App', got '%s'", appInfo.Name)
 	}
 
-	expectedTime, _ := time.Parse(time.RFC3339, "2023-01-01T12:00:00Z")
-	if !appInfo.UpdatedAt.Equal(expectedTime) {
-		t.Errorf("Expected UpdatedAt to be %v, got %v", expectedTime, appInfo.UpdatedAt)
+	// UpdatedAtがinterface{}型になったため、文字列として比較
+	expectedTimeStr := "2023-01-01T12:00:00Z"
+	if updatedAtStr, ok := appInfo.UpdatedAt.(string); ok {
+		if updatedAtStr != expectedTimeStr {
+			t.Errorf("Expected UpdatedAt to be %v, got %v", expectedTimeStr, updatedAtStr)
+		}
+	} else {
+		t.Errorf("Expected UpdatedAt to be string type with value %v, got %T: %v", expectedTimeStr, appInfo.UpdatedAt, appInfo.UpdatedAt)
 	}
 }
 
@@ -455,7 +460,29 @@ func TestGetAppList(t *testing.T) {
 		t.Errorf("Expected first app to be App 1, got %+v", apps[0])
 	}
 
+	// UpdatedAtも確認
+	expectedTime1 := "2023-01-01T12:00:00Z"
+	if updatedAtStr, ok := apps[0].UpdatedAt.(string); ok {
+		if updatedAtStr != expectedTime1 {
+			t.Errorf("Expected first app UpdatedAt to be %v, got %v", expectedTime1, updatedAtStr)
+		}
+	} else {
+		t.Errorf("Expected first app UpdatedAt to be string type with value %v, got %T: %v",
+			expectedTime1, apps[0].UpdatedAt, apps[0].UpdatedAt)
+	}
+
 	if apps[1].ID != "app-id-2" || apps[1].Name != "App 2" {
 		t.Errorf("Expected second app to be App 2, got %+v", apps[1])
+	}
+
+	// UpdatedAtも確認
+	expectedTime2 := "2023-01-02T12:00:00Z"
+	if updatedAtStr, ok := apps[1].UpdatedAt.(string); ok {
+		if updatedAtStr != expectedTime2 {
+			t.Errorf("Expected second app UpdatedAt to be %v, got %v", expectedTime2, updatedAtStr)
+		}
+	} else {
+		t.Errorf("Expected second app UpdatedAt to be string type with value %v, got %T: %v",
+			expectedTime2, apps[1].UpdatedAt, apps[1].UpdatedAt)
 	}
 }

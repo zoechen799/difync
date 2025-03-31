@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -133,6 +134,33 @@ func printStats(stats *syncer.SyncStats, duration time.Duration) {
 	fmt.Printf("Duration: %v\n", duration)
 }
 
+// runInit initializes the app map file
+func runInit(config *syncer.Config) (int, error) {
+	fmt.Println("Difync - Dify.AI DSL Synchronizer")
+	fmt.Println("----------------------------")
+	fmt.Println("Initializing app map file...")
+
+	syncr := createSyncer(*config)
+
+	// initializeAppMapメソッドを使用するための型アサーション
+	defaultSyncer, ok := syncr.(*syncer.DefaultSyncer)
+	if !ok {
+		return 1, fmt.Errorf("failed to convert syncer to DefaultSyncer")
+	}
+
+	// InitializeAppMapメソッドは非公開なので、内部でInitializeAppMapを呼び出すために
+	// LoadAppMapを使用して初期化を開始します
+	appMap, err := defaultSyncer.InitializeAppMap()
+	if err != nil {
+		return 1, fmt.Errorf("initialization failed: %w", err)
+	}
+
+	fmt.Printf("Successfully initialized app map file with %d applications\n", len(appMap.Apps))
+	fmt.Printf("App map file created at: %s\n", config.AppMapFile)
+	fmt.Printf("DSL files downloaded to: %s\n", config.DSLDirectory)
+	return 0, nil
+}
+
 // runSync runs the sync operation
 func runSync(config *syncer.Config) (int, error) {
 	// Create syncer
@@ -147,6 +175,14 @@ func runSync(config *syncer.Config) (int, error) {
 
 	stats, err := syncr.SyncAll()
 	if err != nil {
+		// 初期化のエラーをより明確に表示
+		errMsg := err.Error()
+		appMapNotFoundErr := fmt.Sprintf("app map file not found at %s", config.AppMapFile)
+
+		if strings.Contains(errMsg, appMapNotFoundErr) {
+			return 1, fmt.Errorf("\nError: App map file not found.\n\nPlease run initialization first:\n\ndifync init\n\nThen you can run the sync command.")
+		}
+
 		return 1, fmt.Errorf("error during sync: %w", err)
 	}
 
@@ -168,6 +204,13 @@ func main() {
 
 	flag.Parse()
 
+	// Check for subcommands
+	args := flag.Args()
+	subCommand := ""
+	if len(args) > 0 {
+		subCommand = args[0]
+	}
+
 	// Load and validate configuration
 	config, err := loadConfigAndValidate()
 	if err != nil {
@@ -175,8 +218,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Run sync
-	exitCode, err := runSync(config)
+	var exitCode int
+
+	// サブコマンドに応じて処理を分岐
+	switch subCommand {
+	case "init":
+		// 初期化コマンド
+		exitCode, err = runInit(config)
+	default:
+		// 通常の同期コマンド
+		exitCode, err = runSync(config)
+	}
+
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
