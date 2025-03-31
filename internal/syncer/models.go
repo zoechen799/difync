@@ -48,4 +48,5 @@ type SyncStats struct {
 	Errors    int
 	StartTime time.Time
 	EndTime   time.Time
+	Duration  time.Duration
 }

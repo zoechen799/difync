@@ -240,6 +240,22 @@ func (s *DefaultSyncer) SyncAll() (*SyncStats, error) {
 		StartTime: time.Now(),
 	}
 
+	// Get current app list to compare names
+	remoteAppList, err := s.client.GetAppList()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get app list from API: %w", err)
+	}
+
+	// Create a map of app IDs to app info for quick lookup
+	remoteApps := make(map[string]api.AppInfo)
+	for _, app := range remoteAppList {
+		remoteApps[app.ID] = app
+	}
+
+	// Track name changes for renaming files
+	nameChanges := make(map[string]string) // old filename -> new filename
+	renamedApps := []AppMapping{}          // Updated app mappings
+
 	// First, check for remote apps that have been deleted
 	deletedApps := []AppMapping{}
 
@@ -273,6 +289,58 @@ func (s *DefaultSyncer) SyncAll() (*SyncStats, error) {
 			continue
 		}
 
+		// Check if app name has changed
+		if remoteApp, ok := remoteApps[app.AppID]; ok {
+			// Create a safe filename from the remote app name
+			safeName := s.sanitizeFilename(remoteApp.Name)
+			expectedFilename := safeName + ".yaml"
+
+			// If the current filename doesn't match the expected one based on remote name
+			if app.Filename != expectedFilename {
+				if s.config.Verbose {
+					fmt.Printf("App name changed for %s (ID: %s): %s -> %s\n",
+						app.Filename, app.AppID, app.Filename, expectedFilename)
+				}
+
+				// Check if file exists in filesystem
+				fileExists := s.fileExists(filepath.Join(s.config.DSLDirectory, expectedFilename))
+				counter := 1
+				baseName := safeName
+
+				// Loop until a unique filename is found
+				for fileExists {
+					expectedFilename = fmt.Sprintf("%s_%d.yaml", baseName, counter)
+					fileExists = s.fileExists(filepath.Join(s.config.DSLDirectory, expectedFilename))
+					counter++
+				}
+
+				if !s.config.DryRun {
+					// Rename the file
+					oldPath := filepath.Join(s.config.DSLDirectory, app.Filename)
+					newPath := filepath.Join(s.config.DSLDirectory, expectedFilename)
+
+					if err := os.Rename(oldPath, newPath); err != nil {
+						fmt.Printf("Warning: Failed to rename file %s to %s: %v\n", oldPath, newPath, err)
+					} else if s.config.Verbose {
+						fmt.Printf("Renamed file from %s to %s\n", oldPath, newPath)
+					}
+				}
+
+				// Record the name change
+				nameChanges[app.Filename] = expectedFilename
+
+				// Update the app mapping
+				newMapping := AppMapping{
+					Filename: expectedFilename,
+					AppID:    app.AppID,
+				}
+				renamedApps = append(renamedApps, newMapping)
+
+				// Don't process this app further in this iteration
+				continue
+			}
+		}
+
 		// Process existing apps
 		result := s.SyncApp(app)
 
@@ -293,11 +361,13 @@ func (s *DefaultSyncer) SyncAll() (*SyncStats, error) {
 		}
 	}
 
-	// Update app map if apps were deleted
-	if len(deletedApps) > 0 && !s.config.DryRun {
-		// Create new app map without deleted apps
-		newApps := make([]AppMapping, 0, len(appMap.Apps)-len(deletedApps))
+	// Update app map if apps were deleted or renamed
+	if (len(deletedApps) > 0 || len(renamedApps) > 0) && !s.config.DryRun {
+		// Create new app map without deleted apps and with updated filenames
+		updatedApps := make([]AppMapping, 0, len(appMap.Apps)-len(deletedApps))
+
 		for _, app := range appMap.Apps {
+			// Skip deleted apps
 			isDeleted := false
 			for _, deletedApp := range deletedApps {
 				if app.AppID == deletedApp.AppID {
@@ -305,31 +375,57 @@ func (s *DefaultSyncer) SyncAll() (*SyncStats, error) {
 					break
 				}
 			}
-			if !isDeleted {
-				newApps = append(newApps, app)
+			if isDeleted {
+				continue
+			}
+
+			// Check if this app was renamed
+			isRenamed := false
+			for _, renamedApp := range renamedApps {
+				if app.AppID == renamedApp.AppID {
+					// Add the renamed app
+					updatedApps = append(updatedApps, renamedApp)
+					isRenamed = true
+					break
+				}
+			}
+
+			// Add the unchanged app
+			if !isRenamed {
+				updatedApps = append(updatedApps, app)
 			}
 		}
-		appMap.Apps = newApps
 
-		// Write updated app map to file
-		appMapFile, err := os.Create(s.config.AppMapFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update app map file: %w", err)
+		// Save updated app map
+		updatedAppMap := &AppMap{
+			Apps: updatedApps,
 		}
-		defer appMapFile.Close()
 
-		encoder := json.NewEncoder(appMapFile)
+		file, err := os.Create(s.config.AppMapFile)
+		if err != nil {
+			return stats, fmt.Errorf("failed to update app map file: %w", err)
+		}
+		defer file.Close()
+
+		encoder := json.NewEncoder(file)
 		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(appMap); err != nil {
-			return nil, fmt.Errorf("failed to write updated app map: %w", err)
+		if err := encoder.Encode(updatedAppMap); err != nil {
+			return stats, fmt.Errorf("failed to write updated app map file: %w", err)
 		}
 
 		if s.config.Verbose {
-			fmt.Printf("Updated app map file at %s, removed %d deleted apps\n", s.config.AppMapFile, len(deletedApps))
+			if len(deletedApps) > 0 {
+				fmt.Printf("Removed %d deleted apps from app map\n", len(deletedApps))
+			}
+			if len(renamedApps) > 0 {
+				fmt.Printf("Updated %d app names in app map\n", len(renamedApps))
+			}
 		}
 	}
 
 	stats.EndTime = time.Now()
+	stats.Duration = stats.EndTime.Sub(stats.StartTime)
+
 	return stats, nil
 }
 
