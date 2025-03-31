@@ -33,8 +33,8 @@ go build -o difync ./cmd/difync
 # Basic usage (using credentials from .env file)
 ./difync
 
-# Override credentials from command line
-./difync --base-url https://cloud.dify.ai --token your-api-token
+# Override base URL from command line
+./difync --base-url https://dify.example.com
 
 # Force upload local DSL files to Dify
 ./difync --force upload
@@ -58,7 +58,8 @@ Difync reads configuration from a `.env` file in the project root:
 ```
 # Dify API Configuration
 DIFY_BASE_URL=https://cloud.dify.ai
-DIFY_API_TOKEN=your_api_token_here
+DIFY_EMAIL=your_email_here
+DIFY_PASSWORD=your_password_here
 
 # Optional Configuration
 # DSL_DIRECTORY=custom/dsl
@@ -101,13 +102,14 @@ Difync synchronizes files based on modification time:
 
 ```
 --base-url string   Dify API base URL (overrides env: DIFY_BASE_URL)
---token string      Dify API token (overrides env: DIFY_API_TOKEN)
 --dsl-dir string    Directory containing DSL files (default "dsl")
 --app-map string    Path to app mapping file (default "app_map.json")
 --dry-run           Perform a dry run without making any changes
 --force string      Force sync direction: 'upload', 'download', or empty for bidirectional
 --verbose           Enable verbose output
 ```
+
+Note: Email and password must be set in environment variables (DIFY_EMAIL and DIFY_PASSWORD).
 
 ## Development
 

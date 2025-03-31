@@ -48,7 +48,6 @@ func TestFlags(t *testing.T) {
 	// Register flags again
 	// These must match the flags defined in main.go
 	baseURL := flag.String("base-url", "", "Dify API base URL (overrides env: DIFY_BASE_URL)")
-	token := flag.String("token", "", "Dify API token (overrides env: DIFY_API_TOKEN)")
 	dslDir := flag.String("dsl-dir", "", "Directory containing DSL files (overrides env: DSL_DIRECTORY, default: dsl)")
 	appMapFile := flag.String("app-map", "", "Path to app mapping file (overrides env: APP_MAP_FILE, default: app_map.json)")
 	dryRun := flag.Bool("dry-run", false, "Perform a dry run without making any changes")
@@ -58,7 +57,6 @@ func TestFlags(t *testing.T) {
 	// Parse test args
 	err := flag.CommandLine.Parse([]string{
 		"-base-url", "https://test.example.com",
-		"-token", "test-token",
 		"-dsl-dir", "test-dsl",
 		"-app-map", "test-map.json",
 		"-dry-run",
@@ -72,10 +70,6 @@ func TestFlags(t *testing.T) {
 	// Verify flag values
 	if *baseURL != "https://test.example.com" {
 		t.Errorf("Expected base-url to be 'https://test.example.com', got '%s'", *baseURL)
-	}
-
-	if *token != "test-token" {
-		t.Errorf("Expected token to be 'test-token', got '%s'", *token)
 	}
 
 	if *dslDir != "test-dsl" {
@@ -103,14 +97,16 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	// Save old flags and environment variables to restore later
 	oldFlagSet := flag.CommandLine
 	oldBaseURL := os.Getenv("DIFY_BASE_URL")
-	oldToken := os.Getenv("DIFY_API_TOKEN")
+	oldEmail := os.Getenv("DIFY_EMAIL")
+	oldPassword := os.Getenv("DIFY_PASSWORD")
 	oldDSLDir := os.Getenv("DSL_DIRECTORY")
 	oldAppMapFile := os.Getenv("APP_MAP_FILE")
 
 	defer func() {
 		flag.CommandLine = oldFlagSet
 		os.Setenv("DIFY_BASE_URL", oldBaseURL)
-		os.Setenv("DIFY_API_TOKEN", oldToken)
+		os.Setenv("DIFY_EMAIL", oldEmail)
+		os.Setenv("DIFY_PASSWORD", oldPassword)
 		os.Setenv("DSL_DIRECTORY", oldDSLDir)
 		os.Setenv("APP_MAP_FILE", oldAppMapFile)
 	}()
@@ -118,13 +114,13 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	// Reset flags and environment variables
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	os.Unsetenv("DIFY_BASE_URL")
-	os.Unsetenv("DIFY_API_TOKEN")
+	os.Unsetenv("DIFY_EMAIL")
+	os.Unsetenv("DIFY_PASSWORD")
 	os.Unsetenv("DSL_DIRECTORY")
 	os.Unsetenv("APP_MAP_FILE")
 
 	// Register flags again
 	difyBaseURL = flag.String("base-url", "", "Dify API base URL (overrides env: DIFY_BASE_URL)")
-	difyToken = flag.String("token", "", "Dify API token (overrides env: DIFY_API_TOKEN)")
 	dslDir = flag.String("dsl-dir", "", "Directory containing DSL files (overrides env: DSL_DIRECTORY, default: dsl)")
 	appMapFile = flag.String("app-map", "", "Path to app mapping file (overrides env: APP_MAP_FILE, default: app_map.json)")
 	dryRun = flag.Bool("dry-run", false, "Perform a dry run without making any changes")
@@ -135,13 +131,12 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	flag.CommandLine.Parse([]string{})
 	_, err := loadConfigAndValidate()
 	if err == nil {
-		t.Error("Expected error for missing base URL and token")
+		t.Error("Expected error for missing base URL, email and password")
 	}
 
-	// Test with base URL but missing token
+	// Test with base URL but missing email/password
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	difyBaseURL = flag.String("base-url", "", "")
-	difyToken = flag.String("token", "", "")
 	dslDir = flag.String("dsl-dir", "", "")
 	appMapFile = flag.String("app-map", "", "")
 	dryRun = flag.Bool("dry-run", false, "")
@@ -151,13 +146,12 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	flag.CommandLine.Parse([]string{"-base-url", "https://test.example.com"})
 	_, err = loadConfigAndValidate()
 	if err == nil {
-		t.Error("Expected error for missing token")
+		t.Error("Expected error for missing email/password")
 	}
 
-	// Test with valid parameters from flags
+	// Test with valid parameters from flags and env
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	difyBaseURL = flag.String("base-url", "", "")
-	difyToken = flag.String("token", "", "")
 	dslDir = flag.String("dsl-dir", "", "")
 	appMapFile = flag.String("app-map", "", "")
 	dryRun = flag.Bool("dry-run", false, "")
@@ -166,9 +160,12 @@ func TestLoadConfigAndValidate(t *testing.T) {
 
 	flag.CommandLine.Parse([]string{
 		"-base-url", "https://test.example.com",
-		"-token", "test-token",
 		"-dry-run",
 	})
+
+	// 環境変数を設定
+	os.Setenv("DIFY_EMAIL", "test@example.com")
+	os.Setenv("DIFY_PASSWORD", "testpassword")
 
 	config, err := loadConfigAndValidate()
 	if err != nil {
@@ -179,8 +176,12 @@ func TestLoadConfigAndValidate(t *testing.T) {
 		t.Errorf("Expected DifyBaseURL to be 'https://test.example.com', got '%s'", config.DifyBaseURL)
 	}
 
-	if config.DifyToken != "test-token" {
-		t.Errorf("Expected DifyToken to be 'test-token', got '%s'", config.DifyToken)
+	if config.DifyEmail != "test@example.com" {
+		t.Errorf("Expected DifyEmail to be 'test@example.com', got '%s'", config.DifyEmail)
+	}
+
+	if config.DifyPassword != "testpassword" {
+		t.Errorf("Expected DifyPassword to be 'testpassword', got '%s'", config.DifyPassword)
 	}
 
 	if !config.DryRun {
@@ -190,7 +191,6 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	// Test with valid parameters from environment variables
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	difyBaseURL = flag.String("base-url", "", "")
-	difyToken = flag.String("token", "", "")
 	dslDir = flag.String("dsl-dir", "", "")
 	appMapFile = flag.String("app-map", "", "")
 	dryRun = flag.Bool("dry-run", false, "")
@@ -200,7 +200,8 @@ func TestLoadConfigAndValidate(t *testing.T) {
 	flag.CommandLine.Parse([]string{})
 
 	os.Setenv("DIFY_BASE_URL", "https://env.example.com")
-	os.Setenv("DIFY_API_TOKEN", "env-token")
+	os.Setenv("DIFY_EMAIL", "env@example.com")
+	os.Setenv("DIFY_PASSWORD", "envpassword")
 	os.Setenv("DSL_DIRECTORY", "env-dsl")
 	os.Setenv("APP_MAP_FILE", "env-map.json")
 
@@ -213,14 +214,17 @@ func TestLoadConfigAndValidate(t *testing.T) {
 		t.Errorf("Expected DifyBaseURL to be 'https://env.example.com', got '%s'", config.DifyBaseURL)
 	}
 
-	if config.DifyToken != "env-token" {
-		t.Errorf("Expected DifyToken to be 'env-token', got '%s'", config.DifyToken)
+	if config.DifyEmail != "env@example.com" {
+		t.Errorf("Expected DifyEmail to be 'env@example.com', got '%s'", config.DifyEmail)
+	}
+
+	if config.DifyPassword != "envpassword" {
+		t.Errorf("Expected DifyPassword to be 'envpassword', got '%s'", config.DifyPassword)
 	}
 
 	// Test invalid force direction
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	difyBaseURL = flag.String("base-url", "", "")
-	difyToken = flag.String("token", "", "")
 	dslDir = flag.String("dsl-dir", "", "")
 	appMapFile = flag.String("app-map", "", "")
 	dryRun = flag.Bool("dry-run", false, "")
@@ -229,9 +233,11 @@ func TestLoadConfigAndValidate(t *testing.T) {
 
 	flag.CommandLine.Parse([]string{
 		"-base-url", "https://test.example.com",
-		"-token", "test-token",
 		"-force", "invalid",
 	})
+
+	os.Setenv("DIFY_EMAIL", "test@example.com")
+	os.Setenv("DIFY_PASSWORD", "testpassword")
 
 	_, err = loadConfigAndValidate()
 	if err == nil {
@@ -243,7 +249,8 @@ func TestPrintInfo(t *testing.T) {
 	// This is mostly a visual test, we just check that it doesn't panic
 	config := &syncer.Config{
 		DifyBaseURL:    "https://test.example.com",
-		DifyToken:      "test-token",
+		DifyEmail:      "test@example.com",
+		DifyPassword:   "testpassword",
 		DSLDirectory:   "/path/to/dsl",
 		AppMapFile:     "/path/to/app_map.json",
 		DryRun:         true,
@@ -333,7 +340,8 @@ func TestRunSync(t *testing.T) {
 
 	config := &syncer.Config{
 		DifyBaseURL:  "https://test.example.com",
-		DifyToken:    "test-token",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
 		DSLDirectory: "/path/to/dsl",
 		AppMapFile:   "/path/to/app_map.json",
 	}

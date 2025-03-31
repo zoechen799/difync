@@ -20,7 +20,8 @@ type Syncer interface {
 // Config represents the configuration for the syncer
 type Config struct {
 	DifyBaseURL    string
-	DifyToken      string
+	DifyEmail      string
+	DifyPassword   string
 	DSLDirectory   string
 	AppMapFile     string
 	DryRun         bool
@@ -36,9 +37,17 @@ type DefaultSyncer struct {
 
 // NewSyncer creates a new syncer with the given configuration
 func NewSyncer(config Config) Syncer {
+	client := api.NewClient(config.DifyBaseURL)
+
+	// ログインしてトークンを取得
+	if err := client.Login(config.DifyEmail, config.DifyPassword); err != nil {
+		// エラーが発生した場合は、ログにエラーを記録する
+		fmt.Printf("Failed to login to Dify API: %v\n", err)
+	}
+
 	return &DefaultSyncer{
 		config: config,
-		client: api.NewClient(config.DifyBaseURL, config.DifyToken),
+		client: client,
 	}
 }
 

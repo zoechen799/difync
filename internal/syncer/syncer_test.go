@@ -126,6 +126,15 @@ func setupTestSyncerAndServer(t *testing.T) (Syncer, *httptest.Server, string, s
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/console/api/login":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"status": "success",
+				"data": {
+					"access_token": "test-token"
+				}
+			}`))
 		case "/console/api/apps/test-app-id":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -136,12 +145,18 @@ func setupTestSyncerAndServer(t *testing.T) (Syncer, *httptest.Server, string, s
 					"updated_at": "2023-01-01T12:00:00Z"
 				}
 			}`))
-		case "/console/api/apps/test-app-id/dsl":
+		case "/console/api/apps/test-app-id/export":
 			if r.Method == "GET" {
-				w.Header().Set("Content-Type", "application/yaml")
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("name: Test App\nversion: 1.0.0"))
-			} else if r.Method == "POST" {
+				w.Write([]byte(`{
+					"data": "name: Test App\nversion: 1.0.0"
+				}`))
+			} else {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+			}
+		case "/console/api/apps/test-app-id/import":
+			if r.Method == "POST" {
 				w.WriteHeader(http.StatusOK)
 			} else {
 				w.WriteHeader(http.StatusMethodNotAllowed)
@@ -154,7 +169,8 @@ func setupTestSyncerAndServer(t *testing.T) (Syncer, *httptest.Server, string, s
 	// Create syncer with test configuration
 	config := Config{
 		DifyBaseURL:  server.URL,
-		DifyToken:    "test-token",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
 		DSLDirectory: dslDir,
 		AppMapFile:   appMapPath,
 	}
@@ -289,22 +305,34 @@ func TestFileErrors(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"data": {
-				"id": "test-app-id",
-				"name": "Test App",
-				"updated_at": "2023-01-01T12:00:00Z"
-			}
-		}`))
+		if r.URL.Path == "/console/api/login" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"status": "success",
+				"data": {
+					"access_token": "test-token"
+				}
+			}`))
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": {
+					"id": "test-app-id",
+					"name": "Test App",
+					"updated_at": "2023-01-01T12:00:00Z"
+				}
+			}`))
+		}
 	}))
 	defer server.Close()
 
 	// Create configuration with nonexistent file
 	config := Config{
 		DifyBaseURL:  server.URL,
-		DifyToken:    "test-token",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
 		DSLDirectory: tmpDir,
 		AppMapFile:   "/nonexistent/app_map.json",
 	}
@@ -342,7 +370,8 @@ func TestFileErrors(t *testing.T) {
 func TestNewSyncer(t *testing.T) {
 	config := Config{
 		DifyBaseURL:    "https://example.com",
-		DifyToken:      "test-token",
+		DifyEmail:      "test@example.com",
+		DifyPassword:   "testpassword",
 		DSLDirectory:   "/path/to/dsl",
 		AppMapFile:     "/path/to/app_map.json",
 		DryRun:         true,
@@ -365,8 +394,12 @@ func TestNewSyncer(t *testing.T) {
 		t.Errorf("Expected DifyBaseURL to be %s, got %s", config.DifyBaseURL, defaultSyncer.config.DifyBaseURL)
 	}
 
-	if defaultSyncer.config.DifyToken != config.DifyToken {
-		t.Errorf("Expected DifyToken to be %s, got %s", config.DifyToken, defaultSyncer.config.DifyToken)
+	if defaultSyncer.config.DifyEmail != config.DifyEmail {
+		t.Errorf("Expected DifyEmail to be %s, got %s", config.DifyEmail, defaultSyncer.config.DifyEmail)
+	}
+
+	if defaultSyncer.config.DifyPassword != config.DifyPassword {
+		t.Errorf("Expected DifyPassword to be %s, got %s", config.DifyPassword, defaultSyncer.config.DifyPassword)
 	}
 
 	if defaultSyncer.config.DSLDirectory != config.DSLDirectory {
@@ -425,7 +458,8 @@ func TestDownloadFromRemoteErrors(t *testing.T) {
 	// Create syncer with test configuration
 	config := Config{
 		DifyBaseURL:  server.URL,
-		DifyToken:    "test-token",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
 		DSLDirectory: tmpDir,
 	}
 	syncer := NewSyncer(config)
@@ -484,7 +518,8 @@ func TestDownloadFromRemoteWriteError(t *testing.T) {
 	// Create syncer with test configuration
 	config := Config{
 		DifyBaseURL:  server.URL,
-		DifyToken:    "test-token",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
 		DSLDirectory: tmpDir,
 	}
 	syncer := NewSyncer(config)
@@ -539,7 +574,8 @@ func TestUploadToRemoteErrors(t *testing.T) {
 	// Create syncer with test configuration
 	config := Config{
 		DifyBaseURL:  server.URL,
-		DifyToken:    "test-token",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
 		DSLDirectory: tmpDir,
 	}
 	syncer := NewSyncer(config)
@@ -585,7 +621,8 @@ func TestUploadToRemoteReadError(t *testing.T) {
 	// Create syncer with test configuration
 	config := Config{
 		DifyBaseURL:  server.URL,
-		DifyToken:    "test-token",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
 		DSLDirectory: tmpDir,
 	}
 	syncer := NewSyncer(config)
@@ -632,7 +669,8 @@ func TestSyncAppError(t *testing.T) {
 	// Create syncer with test configuration
 	config := Config{
 		DifyBaseURL:  server.URL,
-		DifyToken:    "test-token",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
 		DSLDirectory: tmpDir,
 	}
 	syncer := NewSyncer(config)

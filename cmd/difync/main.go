@@ -24,7 +24,6 @@ func getEnvWithDefault(key, defaultValue string) string {
 // Command-line flags
 var (
 	difyBaseURL    = flag.String("base-url", "", "Dify API base URL (overrides env: DIFY_BASE_URL)")
-	difyToken      = flag.String("token", "", "Dify API token (overrides env: DIFY_API_TOKEN)")
 	dslDir         = flag.String("dsl-dir", "", "Directory containing DSL files (overrides env: DSL_DIRECTORY, default: dsl)")
 	appMapFile     = flag.String("app-map", "", "Path to app mapping file (overrides env: APP_MAP_FILE, default: app_map.json)")
 	dryRun         = flag.Bool("dry-run", false, "Perform a dry run without making any changes")
@@ -46,10 +45,9 @@ func loadConfigAndValidate() (*syncer.Config, error) {
 		baseURL = os.Getenv("DIFY_BASE_URL")
 	}
 
-	token := *difyToken
-	if token == "" {
-		token = os.Getenv("DIFY_API_TOKEN")
-	}
+	// メールとパスワードは環境変数からのみ取得
+	email := os.Getenv("DIFY_EMAIL")
+	password := os.Getenv("DIFY_PASSWORD")
 
 	// Get DSL directory from flags or environment with default
 	dslDirectory := *dslDir
@@ -65,34 +63,39 @@ func loadConfigAndValidate() (*syncer.Config, error) {
 
 	// Validate required parameters
 	if baseURL == "" {
-		return nil, fmt.Errorf("Dify base URL is required. Set with --base-url or DIFY_BASE_URL env var")
+		return nil, fmt.Errorf("dify base URL is required. Set with --base-url or DIFY_BASE_URL env var")
 	}
 
-	if token == "" {
-		return nil, fmt.Errorf("Dify API token is required. Set with --token or DIFY_API_TOKEN env var")
+	if email == "" {
+		return nil, fmt.Errorf("dify email is required. Set with DIFY_EMAIL env var")
+	}
+
+	if password == "" {
+		return nil, fmt.Errorf("dify password is required. Set with DIFY_PASSWORD env var")
 	}
 
 	// Resolve DSL directory path
 	dslDirPath, err := filepath.Abs(dslDirectory)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to resolve DSL directory path: %w", err)
+		return nil, fmt.Errorf("failed to resolve DSL directory path: %w", err)
 	}
 
 	// Resolve app map file path
 	appMapPath, err := filepath.Abs(appMap)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to resolve app map file path: %w", err)
+		return nil, fmt.Errorf("failed to resolve app map file path: %w", err)
 	}
 
 	// Validate force direction if provided
 	if *forceDirection != "" && *forceDirection != "upload" && *forceDirection != "download" {
-		return nil, fmt.Errorf("Invalid force direction '%s'. Must be 'upload', 'download', or empty", *forceDirection)
+		return nil, fmt.Errorf("invalid force direction '%s'. Must be 'upload', 'download', or empty", *forceDirection)
 	}
 
 	// Create syncer config
 	config := &syncer.Config{
 		DifyBaseURL:    baseURL,
-		DifyToken:      token,
+		DifyEmail:      email,
+		DifyPassword:   password,
 		DSLDirectory:   dslDirPath,
 		AppMapFile:     appMapPath,
 		DryRun:         *dryRun,
@@ -144,7 +147,7 @@ func runSync(config *syncer.Config) (int, error) {
 
 	stats, err := syncr.SyncAll()
 	if err != nil {
-		return 1, fmt.Errorf("Error during sync: %w", err)
+		return 1, fmt.Errorf("error during sync: %w", err)
 	}
 
 	// Print summary
