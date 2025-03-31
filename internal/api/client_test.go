@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -461,5 +462,28 @@ func TestGetAppList(t *testing.T) {
 	} else {
 		t.Errorf("Expected second app UpdatedAt to be string type with value %v, got %T: %v",
 			expectedTime2, apps[1].UpdatedAt, apps[1].UpdatedAt)
+	}
+}
+
+func TestMin(t *testing.T) {
+	testCases := []struct {
+		a, b     int
+		expected int
+	}{
+		{5, 10, 5},
+		{10, 5, 5},
+		{0, 0, 0},
+		{-5, 5, -5},
+		{5, -5, -5},
+		{-10, -5, -10},
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("min(%d,%d)", tc.a, tc.b), func(t *testing.T) {
+			result := min(tc.a, tc.b)
+			if result != tc.expected {
+				t.Errorf("Expected min(%d, %d) = %d, got %d", tc.a, tc.b, tc.expected, result)
+			}
+		})
 	}
 }

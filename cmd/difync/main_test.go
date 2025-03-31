@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -356,5 +357,271 @@ func TestRunSync(t *testing.T) {
 	}
 	if exitCode != 1 {
 		t.Errorf("Expected exit code 1, got %d", exitCode)
+	}
+}
+
+// MockSyncerWithInit implements both Syncer and has InitializeAppMap method
+type MockSyncerWithInit struct {
+	*MockSyncer
+	appMap  *syncer.AppMap
+	initErr error
+}
+
+// InitializeAppMap mocks the DefaultSyncer.InitializeAppMap method
+func (m *MockSyncerWithInit) InitializeAppMap() (*syncer.AppMap, error) {
+	return m.appMap, m.initErr
+}
+
+func TestRunInit(t *testing.T) {
+	// Save the original factory function
+	originalFactory := createSyncer
+	defer func() {
+		createSyncer = originalFactory
+	}()
+
+	// Create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "difync-test-runInit-")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a DSL directory
+	dslDir := filepath.Join(tmpDir, "dsl")
+	if err := os.MkdirAll(dslDir, 0755); err != nil {
+		t.Fatalf("Failed to create DSL directory: %v", err)
+	}
+
+	// Create app map file path
+	appMapPath := filepath.Join(tmpDir, "app_map.json")
+
+	// Test with successful initialization
+	mockSyncer := &MockSyncerWithInit{
+		MockSyncer: &MockSyncer{},
+		appMap: &syncer.AppMap{
+			Apps: []syncer.AppMapping{
+				{
+					Filename: "test1.yaml",
+					AppID:    "test-app-id-1",
+				},
+				{
+					Filename: "test2.yaml",
+					AppID:    "test-app-id-2",
+				},
+			},
+		},
+	}
+
+	createSyncer = func(config syncer.Config) syncer.Syncer {
+		return mockSyncer
+	}
+
+	config := &syncer.Config{
+		DifyBaseURL:  "https://test.example.com",
+		DifyEmail:    "test@example.com",
+		DifyPassword: "testpassword",
+		DSLDirectory: dslDir,
+		AppMapFile:   appMapPath,
+	}
+
+	exitCode, err := runInit(config)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("Expected exit code 0, got %d", exitCode)
+	}
+
+	// Test initialization with error
+	mockSyncer.initErr = fmt.Errorf("mock initialization error")
+
+	exitCode, err = runInit(config)
+	if err == nil {
+		t.Errorf("Expected error, got none")
+	}
+	if exitCode != 1 {
+		t.Errorf("Expected exit code 1, got %d", exitCode)
+	}
+
+	// Test when syncer is not DefaultSyncer
+	createSyncer = func(config syncer.Config) syncer.Syncer {
+		return &MockSyncer{} // This doesn't implement InitializeAppMap
+	}
+
+	exitCode, err = runInit(config)
+	if err == nil {
+		t.Errorf("Expected error about failed conversion, got none")
+	}
+	if exitCode != 1 {
+		t.Errorf("Expected exit code 1, got %d", exitCode)
+	}
+}
+
+// TestMainFunction tests the main function with various commands
+func TestMainFunction(t *testing.T) {
+	// Save original functions and os.Args
+	origArgs := os.Args
+	origExit := osExit
+	origCreateSyncer := createSyncer
+
+	// Mock exit function
+	var exitCode int
+	osExit = func(code int) {
+		exitCode = code
+		// Don't actually exit
+	}
+
+	defer func() {
+		// Restore original functions and os.Args
+		os.Args = origArgs
+		osExit = origExit
+		createSyncer = origCreateSyncer
+		// Clear env vars
+		os.Unsetenv("DIFY_BASE_URL")
+		os.Unsetenv("DIFY_EMAIL")
+		os.Unsetenv("DIFY_PASSWORD")
+		os.Unsetenv("DSL_DIRECTORY")
+		os.Unsetenv("APP_MAP_FILE")
+	}()
+
+	// Create temp directory for testing
+	tmpDir, err := os.MkdirTemp("", "difync-test-main-")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create DSL directory
+	dslDir := filepath.Join(tmpDir, "dsl")
+	if err := os.MkdirAll(dslDir, 0755); err != nil {
+		t.Fatalf("Failed to create DSL directory: %v", err)
+	}
+
+	// Create app map file path and content for sync test
+	appMapPath := filepath.Join(tmpDir, "app_map.json")
+	appMapContent := `{"apps":[{"filename":"test.yaml","app_id":"test-app-id"}]}`
+	if err := os.WriteFile(appMapPath, []byte(appMapContent), 0644); err != nil {
+		t.Fatalf("Failed to create app map file: %v", err)
+	}
+
+	// Setup test cases
+	testCases := []struct {
+		name          string
+		args          []string
+		envVars       map[string]string
+		mockSyncer    syncer.Syncer
+		expectedCode  int
+		shouldRecover bool // Set to true if we expect a panic that should be recovered
+	}{
+		{
+			name: "successful_sync",
+			args: []string{"difync"},
+			envVars: map[string]string{
+				"DIFY_BASE_URL": "https://test.example.com",
+				"DIFY_EMAIL":    "test@example.com",
+				"DIFY_PASSWORD": "testpassword",
+				"DSL_DIRECTORY": dslDir,
+				"APP_MAP_FILE":  appMapPath,
+			},
+			mockSyncer: &MockSyncer{
+				stats: &syncer.SyncStats{
+					Total:     2,
+					Downloads: 0,
+					NoAction:  2,
+					Errors:    0,
+				},
+				err: nil,
+			},
+			expectedCode:  0,
+			shouldRecover: false,
+		},
+		{
+			name: "successful_init",
+			args: []string{"difync", "init"},
+			envVars: map[string]string{
+				"DIFY_BASE_URL": "https://test.example.com",
+				"DIFY_EMAIL":    "test@example.com",
+				"DIFY_PASSWORD": "testpassword",
+				"DSL_DIRECTORY": dslDir,
+				"APP_MAP_FILE":  appMapPath,
+			},
+			mockSyncer: &MockSyncerWithInit{
+				MockSyncer: &MockSyncer{
+					stats: &syncer.SyncStats{},
+					err:   nil,
+				},
+				appMap: &syncer.AppMap{
+					Apps: []syncer.AppMapping{
+						{
+							Filename: "test.yaml",
+							AppID:    "test-app-id",
+						},
+					},
+				},
+				initErr: nil,
+			},
+			expectedCode:  0,
+			shouldRecover: false,
+		},
+		{
+			name: "invalid_config",
+			args: []string{"difync"},
+			envVars: map[string]string{
+				// Only partial configuration - missing required values
+				"DSL_DIRECTORY": dslDir,
+				"APP_MAP_FILE":  appMapPath,
+			},
+			mockSyncer:    nil, // Won't be used due to config error
+			expectedCode:  1,
+			shouldRecover: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clear environment variables first
+			os.Unsetenv("DIFY_BASE_URL")
+			os.Unsetenv("DIFY_EMAIL")
+			os.Unsetenv("DIFY_PASSWORD")
+			os.Unsetenv("DSL_DIRECTORY")
+			os.Unsetenv("APP_MAP_FILE")
+
+			// Set arguments
+			os.Args = tc.args
+
+			// Set environment variables
+			for k, v := range tc.envVars {
+				os.Setenv(k, v)
+			}
+
+			// Set mock syncer if provided
+			if tc.mockSyncer != nil {
+				createSyncer = func(config syncer.Config) syncer.Syncer {
+					return tc.mockSyncer
+				}
+			} else {
+				// Default factory that won't be called due to config errors
+				createSyncer = origCreateSyncer
+			}
+
+			// For tests that might panic, use a defer/recover
+			if tc.shouldRecover {
+				defer func() {
+					if r := recover(); r != nil {
+						// Recovered from panic as expected
+						t.Logf("Recovered from expected panic: %v", r)
+					}
+				}()
+			}
+
+			// Call main (this will set exitCode through our mock osExit)
+			exitCode = 0 // Reset exitCode
+			main()
+
+			// Check exit code
+			if exitCode != tc.expectedCode {
+				t.Errorf("Expected exit code %d, got %d", tc.expectedCode, exitCode)
+			}
+		})
 	}
 }

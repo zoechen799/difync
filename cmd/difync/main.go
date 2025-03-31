@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -35,6 +36,9 @@ var (
 var createSyncer = func(config syncer.Config) syncer.Syncer {
 	return syncer.NewSyncer(config)
 }
+
+// For testing purposes
+var osExit = os.Exit
 
 // loadConfigAndValidate loads configuration from flags and environment variables
 // and validates the configuration
@@ -126,23 +130,41 @@ func printStats(stats *syncer.SyncStats, duration time.Duration) {
 
 // runInit initializes the app map file
 func runInit(config *syncer.Config) (int, error) {
+	// Validate config
+	if config == nil {
+		return 1, fmt.Errorf("configuration is nil")
+	}
+
 	fmt.Println("Difync - Dify.AI DSL Synchronizer")
 	fmt.Println("----------------------------")
 	fmt.Println("Initializing app map file...")
 
 	syncr := createSyncer(*config)
 
-	// Type assertion to use the initializeAppMap method
-	defaultSyncer, ok := syncr.(*syncer.DefaultSyncer)
-	if !ok {
+	// Type assertion using duck typing to check for InitializeAppMap method
+	// Use reflection to check if the object has the InitializeAppMap method
+	initMethod := reflect.ValueOf(syncr).MethodByName("InitializeAppMap")
+	if !initMethod.IsValid() {
 		return 1, fmt.Errorf("failed to convert syncer to DefaultSyncer")
 	}
 
-	// Since InitializeAppMap method is private, we use LoadAppMap
-	// to start initialization internally
-	appMap, err := defaultSyncer.InitializeAppMap()
-	if err != nil {
-		return 1, fmt.Errorf("initialization failed: %w", err)
+	// Call the InitializeAppMap method
+	results := initMethod.Call([]reflect.Value{})
+	if len(results) != 2 {
+		return 1, fmt.Errorf("unexpected return values from InitializeAppMap")
+	}
+
+	// Check for error
+	errVal := results[1].Interface()
+	if errVal != nil {
+		return 1, fmt.Errorf("initialization failed: %v", errVal)
+	}
+
+	// Get app map
+	appMapVal := results[0].Interface()
+	appMap, ok := appMapVal.(*syncer.AppMap)
+	if !ok {
+		return 1, fmt.Errorf("unexpected return type from InitializeAppMap")
 	}
 
 	fmt.Printf("Successfully initialized app map file with %d applications\n", len(appMap.Apps))
@@ -153,6 +175,11 @@ func runInit(config *syncer.Config) (int, error) {
 
 // runSync runs the sync operation
 func runSync(config *syncer.Config) (int, error) {
+	// Validate config
+	if config == nil {
+		return 1, fmt.Errorf("configuration is nil")
+	}
+
 	// Create syncer
 	syncr := createSyncer(*config)
 
@@ -170,7 +197,7 @@ func runSync(config *syncer.Config) (int, error) {
 		appMapNotFoundErr := fmt.Sprintf("app map file not found at %s", config.AppMapFile)
 
 		if strings.Contains(errMsg, appMapNotFoundErr) {
-			return 1, fmt.Errorf("\nError: App map file not found.\n\nPlease run initialization first:\n\ndifync init\n\nThen you can run the sync command.")
+			return 1, fmt.Errorf("\nerror: App map file not found.\n\nPlease run initialization first:\n\ndifync init\n\nThen you can run the sync command")
 		}
 
 		return 1, fmt.Errorf("error during sync: %w", err)
@@ -205,7 +232,7 @@ func main() {
 	config, err := loadConfigAndValidate()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
+		osExit(1)
 	}
 
 	var exitCode int
@@ -222,8 +249,8 @@ func main() {
 
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
+		osExit(1)
 	}
 
-	os.Exit(exitCode)
+	osExit(exitCode)
 }

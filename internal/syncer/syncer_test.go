@@ -1265,3 +1265,477 @@ func TestSyncAllWithDeletedApps(t *testing.T) {
 		t.Errorf("Expected app-id-1 to remain in app map, got %s", updatedAppMap.Apps[0].AppID)
 	}
 }
+
+func TestSyncAppExtensive(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "difync-test-syncapp-")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test DSL directory
+	dslDir := filepath.Join(tmpDir, "dsl")
+	if err := os.MkdirAll(dslDir, 0755); err != nil {
+		t.Fatalf("Failed to create DSL directory: %v", err)
+	}
+
+	// Create a test file (app1.yaml)
+	file1 := filepath.Join(dslDir, "app1.yaml")
+	if err := os.WriteFile(file1, []byte("name: App 1\nversion: 1.0.0"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Set file modification time to a known value (1 day ago)
+	fileTime := time.Now().Add(-24 * time.Hour)
+	if err := os.Chtimes(file1, fileTime, fileTime); err != nil {
+		t.Fatalf("Failed to set file modification time: %v", err)
+	}
+
+	// Create test mapping
+	app1 := AppMapping{
+		Filename: "app1.yaml",
+		AppID:    "app-id-1",
+	}
+
+	// Create a mock server
+	var serverHandler func(w http.ResponseWriter, r *http.Request)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverHandler(w, r)
+	}))
+	defer server.Close()
+
+	// Basic test cases for SyncApp
+	testCases := []struct {
+		name           string
+		handler        func(w http.ResponseWriter, r *http.Request)
+		expectedAction SyncAction
+		expectedError  bool
+		dryRun         bool
+		verbose        bool
+	}{
+		{
+			name: "file_not_found",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				// This case won't hit the server as the file doesn't exist
+			},
+			expectedAction: ActionError,
+			expectedError:  true,
+		},
+		{
+			name: "app_check_error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(`{"error": "Internal server error"}`))
+			},
+			expectedAction: ActionError,
+			expectedError:  true,
+		},
+		{
+			name: "app_deleted",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return not found
+				w.WriteHeader(http.StatusNotFound)
+			},
+			expectedAction: ActionNone,
+			expectedError:  false,
+		},
+		{
+			name: "app_info_error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				// For app info, return error
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			expectedAction: ActionError,
+			expectedError:  true,
+		},
+		{
+			name: "nil_updated_at",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"data": {
+							"id": "app-id-1",
+							"name": "App 1",
+							"updated_at": null
+						}
+					}`))
+					return
+				}
+			},
+			expectedAction: ActionNone,
+			expectedError:  false,
+		},
+		{
+			name: "empty_string_updated_at",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"data": {
+							"id": "app-id-1",
+							"name": "App 1",
+							"updated_at": ""
+						}
+					}`))
+					return
+				}
+			},
+			expectedAction: ActionNone,
+			expectedError:  false,
+		},
+		{
+			name: "remote_newer_download",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"data": {
+							"id": "app-id-1",
+							"name": "App 1",
+							"updated_at": "` + time.Now().Format(time.RFC3339) + `"
+						}
+					}`))
+					return
+				}
+				// For DSL export
+				if strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{"data": "name: Updated App 1\nversion: 1.1.0"}`))
+					return
+				}
+			},
+			expectedAction: ActionDownload,
+			expectedError:  false,
+		},
+		{
+			name: "remote_newer_dry_run",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"data": {
+							"id": "app-id-1",
+							"name": "App 1",
+							"updated_at": "` + time.Now().Format(time.RFC3339) + `"
+						}
+					}`))
+					return
+				}
+				// For DSL export
+				if strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{"data": "name: Updated App 1\nversion: 1.1.0"}`))
+					return
+				}
+			},
+			expectedAction: ActionDownload,
+			expectedError:  false,
+			dryRun:         true,
+		},
+		{
+			name: "dsl_error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"data": {
+							"id": "app-id-1",
+							"name": "App 1",
+							"updated_at": "` + time.Now().Format(time.RFC3339) + `"
+						}
+					}`))
+					return
+				}
+				// For DSL export, return error
+				if strings.Contains(r.URL.Path, "/export") {
+					w.WriteHeader(http.StatusInternalServerError)
+					w.Write([]byte(`{"error": "Internal server error"}`))
+					return
+				}
+			},
+			expectedAction: ActionDownload,
+			expectedError:  true,
+		},
+		{
+			name: "remote_older",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"data": {
+							"id": "app-id-1",
+							"name": "App 1",
+							"updated_at": "` + time.Now().Add(-48*time.Hour).Format(time.RFC3339) + `"
+						}
+					}`))
+					return
+				}
+			},
+			expectedAction: ActionNone,
+			expectedError:  false,
+		},
+		{
+			name: "integer_timestamp",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					// Use current timestamp (newer than file)
+					w.Write([]byte(`{
+						"data": {
+							"id": "app-id-1",
+							"name": "App 1",
+							"updated_at": ` + fmt.Sprintf("%d", time.Now().Unix()) + `
+						}
+					}`))
+					return
+				}
+				// For DSL export
+				if strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{"data": "name: Updated App 1\nversion: 1.1.0"}`))
+					return
+				}
+			},
+			expectedAction: ActionDownload,
+			expectedError:  false,
+		},
+		{
+			name: "float_timestamp",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					// Use current timestamp (newer than file)
+					w.Write([]byte(`{
+						"data": {
+							"id": "app-id-1",
+							"name": "App 1",
+							"updated_at": ` + fmt.Sprintf("%f", float64(time.Now().Unix())) + `
+						}
+					}`))
+					return
+				}
+				// For DSL export
+				if strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{"data": "name: Updated App 1\nversion: 1.1.0"}`))
+					return
+				}
+			},
+			expectedAction: ActionDownload,
+			expectedError:  false,
+		},
+		{
+			name: "unknown_type_timestamp",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/console/api/login" {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(`{
+						"status": "success",
+						"data": {
+							"access_token": "test-token"
+						}
+					}`))
+					return
+				}
+				// For app check, return success
+				if strings.Contains(r.URL.Path, "app-id-1") && !strings.Contains(r.URL.Path, "/export") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					// Use an object as timestamp (should use default timestamp)
+					w.Write([]byte(`{
+						"data": {
+							"id": "app-id-1",
+							"name": "App 1",
+							"updated_at": {"some": "object"}
+						}
+					}`))
+					return
+				}
+			},
+			expectedAction: ActionNone,
+			expectedError:  false,
+		},
+	}
+
+	// Run test cases
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup handler
+			serverHandler = tc.handler
+
+			// Create a test file for each test case
+			testFile := filepath.Join(dslDir, app1.Filename)
+			if tc.name != "file_not_found" {
+				if err := os.WriteFile(testFile, []byte("name: App 1\nversion: 1.0.0"), 0644); err != nil {
+					t.Fatalf("Failed to create test file: %v", err)
+				}
+				if err := os.Chtimes(testFile, fileTime, fileTime); err != nil {
+					t.Fatalf("Failed to set file modification time: %v", err)
+				}
+			} else {
+				// For file_not_found case, remove the file if it exists
+				os.Remove(testFile)
+			}
+
+			// Create syncer with test configuration
+			config := Config{
+				DifyBaseURL:  server.URL,
+				DifyEmail:    "test@example.com",
+				DifyPassword: "testpassword",
+				DSLDirectory: dslDir,
+				DryRun:       tc.dryRun,
+				Verbose:      tc.verbose,
+			}
+			syncer := NewSyncer(config)
+
+			// Call SyncApp
+			result := syncer.SyncApp(app1)
+
+			// Check results
+			if result.Action != tc.expectedAction {
+				t.Errorf("Expected action %s, got %s", tc.expectedAction, result.Action)
+			}
+			if (result.Error != nil) != tc.expectedError {
+				t.Errorf("Expected error: %v, got error: %v", tc.expectedError, result.Error)
+			}
+		})
+	}
+}
