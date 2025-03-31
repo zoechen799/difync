@@ -41,9 +41,9 @@ type DefaultSyncer struct {
 func NewSyncer(config Config) Syncer {
 	client := api.NewClient(config.DifyBaseURL)
 
-	// ログインしてトークンを取得
+	// Login to get token
 	if err := client.Login(config.DifyEmail, config.DifyPassword); err != nil {
-		// エラーが発生した場合は、ログにエラーを記録する
+		// Log the error if login fails
 		fmt.Printf("Failed to login to Dify API: %v\n", err)
 	}
 
@@ -58,7 +58,7 @@ func (s *DefaultSyncer) LoadAppMap() (*AppMap, error) {
 	// Check if app map file exists
 	_, err := os.Stat(s.config.AppMapFile)
 	if os.IsNotExist(err) {
-		// ファイルが存在しない場合は、dry-runモードに関わらず初期化を促す
+		// If the file doesn't exist, prompt for initialization regardless of dry-run mode
 		return nil, fmt.Errorf("app map file not found at %s. Please run 'difync init' first to initialize the app map", s.config.AppMapFile)
 	}
 
@@ -98,27 +98,27 @@ func (s *DefaultSyncer) InitializeAppMap() (*AppMap, error) {
 		Apps: make([]AppMapping, 0, len(appList)),
 	}
 
-	// ファイル名の重複を避けるためのマップ
+	// Map to track used filenames to avoid duplicates
 	usedFilenames := make(map[string]bool)
 
 	// For each app, add an entry to the app map
 	for _, app := range appList {
 		// Create a safe filename from app name
-		// 日本語などの文字も保持する
+		// Preserve non-ASCII characters like Japanese
 		safeName := s.sanitizeFilename(app.Name)
 		fmt.Printf("Debug - sanitizeFilename(%q) = %q\n", app.Name, safeName)
 		filename := safeName + ".yaml"
 
-		// 同名ファイルの重複を避ける
-		// ファイルシステム上に存在するかチェック
+		// Avoid duplicate filenames
+		// Check if file exists in filesystem
 		fileExists := s.fileExists(filepath.Join(s.config.DSLDirectory, filename))
-		// すでに追加済みのファイル名かチェック
+		// Check if filename is already used in the map
 		filenameUsed := usedFilenames[filename]
 
 		counter := 1
 		baseName := safeName
 
-		// ファイル名が重複する限りループ
+		// Loop until a unique filename is found
 		for fileExists || filenameUsed {
 			fmt.Printf("Debug - File exists or already used: %s, incrementing counter to %d\n", filename, counter)
 			filename = fmt.Sprintf("%s_%d.yaml", baseName, counter)
@@ -129,7 +129,7 @@ func (s *DefaultSyncer) InitializeAppMap() (*AppMap, error) {
 
 		fmt.Printf("Debug - Final filename for app %q (ID: %s): %s\n", app.Name, app.ID, filename)
 
-		// 使用するファイル名を記録
+		// Record the filename as used
 		usedFilenames[filename] = true
 
 		appMap.Apps = append(appMap.Apps, AppMapping{
@@ -193,19 +193,19 @@ func (s *DefaultSyncer) fileExists(path string) bool {
 
 // sanitizeFilename creates a safe filename from an app name
 func (s *DefaultSyncer) sanitizeFilename(name string) string {
-	// 結果の文字列
+	// Result string
 	var result strings.Builder
 
-	// ファイル名に使用できない文字を置き換える
-	// Windows, macOS, Linuxで共通して使用できない文字: / \ : * ? " < > |
+	// Replace characters not allowed in filenames
+	// Characters invalid across Windows, macOS, Linux: / \ : * ? " < > |
 	invalidChars := []rune{'/', '\\', ':', '*', '?', '"', '<', '>', '|'}
 
-	// スペースはアンダースコアに変換
+	// Convert spaces to underscores
 	for _, r := range name {
 		if unicode.IsSpace(r) {
 			result.WriteRune('_')
 		} else {
-			// ファイル名に使用できない文字をチェック
+			// Check for invalid characters
 			invalid := false
 			for _, ic := range invalidChars {
 				if r == ic {
@@ -220,7 +220,7 @@ func (s *DefaultSyncer) sanitizeFilename(name string) string {
 		}
 	}
 
-	// 結果が空の場合はデフォルト名を使用
+	// Use default name if result is empty
 	if result.Len() == 0 {
 		return "app"
 	}
@@ -303,18 +303,18 @@ func (s *DefaultSyncer) SyncApp(app AppMapping) SyncResult {
 	fmt.Printf("Debug - App Info for %s: %+v\n", app.AppID, appInfo)
 
 	// Convert interface{} updated_at to time.Time
-	remoteModTime := time.Now() // デフォルト値として現在時刻を設定
+	remoteModTime := time.Now() // Set current time as default value
 
 	switch v := appInfo.UpdatedAt.(type) {
 	case string:
-		// 文字列の場合：文字列タイムスタンプを解析
+		// For string type: parse the timestamp string
 		if v != "" {
-			// RFC3339形式を試す (2023-01-02T15:04:05Z)
+			// Try RFC3339 format (2023-01-02T15:04:05Z)
 			parsedTime, err := time.Parse(time.RFC3339, v)
 			if err == nil {
 				remoteModTime = parsedTime
 			} else {
-				// 他の形式を試す
+				// Try other formats
 				layouts := []string{
 					"2006-01-02 15:04:05",
 					"2006-01-02T15:04:05",
@@ -333,19 +333,19 @@ func (s *DefaultSyncer) SyncApp(app AppMapping) SyncResult {
 			}
 		}
 	case float64:
-		// 数値の場合：UNIXタイムスタンプとして解釈（秒単位）
+		// For numeric type: interpret as UNIX timestamp (seconds)
 		remoteModTime = time.Unix(int64(v), 0)
 		fmt.Printf("Debug - Converted float64 timestamp %v to time: %v\n", v, remoteModTime)
 	case int:
-		// 整数の場合：UNIXタイムスタンプとして解釈（秒単位）
+		// For integer type: interpret as UNIX timestamp (seconds)
 		remoteModTime = time.Unix(int64(v), 0)
 		fmt.Printf("Debug - Converted int timestamp %v to time: %v\n", v, remoteModTime)
 	case int64:
-		// 64ビット整数の場合：UNIXタイムスタンプとして解釈
+		// For 64-bit integer: interpret as UNIX timestamp
 		remoteModTime = time.Unix(v, 0)
 		fmt.Printf("Debug - Converted int64 timestamp %v to time: %v\n", v, remoteModTime)
 	case json.Number:
-		// json.Number型の場合
+		// For json.Number type
 		if i, err := v.Int64(); err == nil {
 			remoteModTime = time.Unix(i, 0)
 			fmt.Printf("Debug - Converted json.Number timestamp %v to time: %v\n", v, remoteModTime)

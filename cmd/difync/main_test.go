@@ -163,7 +163,7 @@ func TestLoadConfigAndValidate(t *testing.T) {
 		"-dry-run",
 	})
 
-	// 環境変数を設定
+	// Set environment variables
 	os.Setenv("DIFY_EMAIL", "test@example.com")
 	os.Setenv("DIFY_PASSWORD", "testpassword")
 

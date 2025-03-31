@@ -143,7 +143,7 @@ func TestGetAppInfo(t *testing.T) {
 
 	// Create client with test server URL
 	client := NewClient(server.URL)
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 
 	// Call the method
 	appInfo, err := client.GetAppInfo("test-app-id")
@@ -162,7 +162,7 @@ func TestGetAppInfo(t *testing.T) {
 		t.Errorf("Expected Name to be 'Test App', got '%s'", appInfo.Name)
 	}
 
-	// UpdatedAtがinterface{}型になったため、文字列として比較
+	// Compare UpdatedAt as string since it's now an interface{} type
 	expectedTimeStr := "2023-01-01T12:00:00Z"
 	if updatedAtStr, ok := appInfo.UpdatedAt.(string); ok {
 		if updatedAtStr != expectedTimeStr {
@@ -183,7 +183,7 @@ func TestGetAppInfoErrors(t *testing.T) {
 
 	// Test HTTP client error
 	client = NewClient("invalid-url")
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 	_, err = client.GetAppInfo("test-app-id")
 	if err == nil {
 		t.Error("Expected error for invalid URL")
@@ -197,7 +197,7 @@ func TestGetAppInfoErrors(t *testing.T) {
 	defer server.Close()
 
 	client = NewClient(server.URL)
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 	_, err = client.GetAppInfo("test-app-id")
 	if err == nil {
 		t.Error("Expected error for 404 response")
@@ -212,7 +212,7 @@ func TestGetAppInfoErrors(t *testing.T) {
 	defer server.Close()
 
 	client = NewClient(server.URL)
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 	_, err = client.GetAppInfo("test-app-id")
 	if err == nil {
 		t.Error("Expected error for invalid JSON response")
@@ -255,7 +255,7 @@ func TestGetDSL(t *testing.T) {
 
 	// Create client with test server URL
 	client := NewClient(server.URL)
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 
 	// Call the method
 	dsl, err := client.GetDSL("test-app-id")
@@ -282,7 +282,7 @@ func TestGetDSLErrors(t *testing.T) {
 
 	// Test HTTP client error
 	client = NewClient("invalid-url")
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 	_, err = client.GetDSL("test-app-id")
 	if err == nil {
 		t.Error("Expected error for invalid URL")
@@ -296,7 +296,7 @@ func TestGetDSLErrors(t *testing.T) {
 	defer server.Close()
 
 	client = NewClient(server.URL)
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 	_, err = client.GetDSL("test-app-id")
 	if err == nil {
 		t.Error("Expected error for 404 response")
@@ -343,7 +343,7 @@ func TestUpdateDSL(t *testing.T) {
 
 	// Create client with test server URL
 	client := NewClient(server.URL)
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 
 	// Call the method
 	dsl := []byte("name: Test App\nversion: 1.0.0")
@@ -365,7 +365,7 @@ func TestUpdateDSLErrors(t *testing.T) {
 
 	// Test HTTP client error
 	client = NewClient("invalid-url")
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 	err = client.UpdateDSL("test-app-id", []byte("test"))
 	if err == nil {
 		t.Error("Expected error for invalid URL")
@@ -392,14 +392,14 @@ func TestUpdateDSLErrors(t *testing.T) {
 	defer server.Close()
 
 	client = NewClient(server.URL)
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 	err = client.UpdateDSL("test-app-id", []byte("test"))
 	if err == nil {
 		t.Error("Expected error for 500 response")
 	}
 }
 
-// TestGetAppList は GetAppList メソッドのテスト
+// TestGetAppList tests the GetAppList method
 func TestGetAppList(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -441,7 +441,7 @@ func TestGetAppList(t *testing.T) {
 
 	// Create client with test server URL
 	client := NewClient(server.URL)
-	client.token = "test-token" // 直接トークンを設定
+	client.token = "test-token" // Set token directly for testing
 
 	// Call the method
 	apps, err := client.GetAppList()
@@ -460,7 +460,7 @@ func TestGetAppList(t *testing.T) {
 		t.Errorf("Expected first app to be App 1, got %+v", apps[0])
 	}
 
-	// UpdatedAtも確認
+	// Also check UpdatedAt
 	expectedTime1 := "2023-01-01T12:00:00Z"
 	if updatedAtStr, ok := apps[0].UpdatedAt.(string); ok {
 		if updatedAtStr != expectedTime1 {
@@ -475,7 +475,7 @@ func TestGetAppList(t *testing.T) {
 		t.Errorf("Expected second app to be App 2, got %+v", apps[1])
 	}
 
-	// UpdatedAtも確認
+	// Also check UpdatedAt
 	expectedTime2 := "2023-01-02T12:00:00Z"
 	if updatedAtStr, ok := apps[1].UpdatedAt.(string); ok {
 		if updatedAtStr != expectedTime2 {

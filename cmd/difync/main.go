@@ -46,7 +46,7 @@ func loadConfigAndValidate() (*syncer.Config, error) {
 		baseURL = os.Getenv("DIFY_BASE_URL")
 	}
 
-	// メールとパスワードは環境変数からのみ取得
+	// Email and password are only retrieved from environment variables
 	email := os.Getenv("DIFY_EMAIL")
 	password := os.Getenv("DIFY_PASSWORD")
 
@@ -142,14 +142,14 @@ func runInit(config *syncer.Config) (int, error) {
 
 	syncr := createSyncer(*config)
 
-	// initializeAppMapメソッドを使用するための型アサーション
+	// Type assertion to use the initializeAppMap method
 	defaultSyncer, ok := syncr.(*syncer.DefaultSyncer)
 	if !ok {
 		return 1, fmt.Errorf("failed to convert syncer to DefaultSyncer")
 	}
 
-	// InitializeAppMapメソッドは非公開なので、内部でInitializeAppMapを呼び出すために
-	// LoadAppMapを使用して初期化を開始します
+	// Since InitializeAppMap method is private, we use LoadAppMap
+	// to start initialization internally
 	appMap, err := defaultSyncer.InitializeAppMap()
 	if err != nil {
 		return 1, fmt.Errorf("initialization failed: %w", err)
@@ -175,7 +175,7 @@ func runSync(config *syncer.Config) (int, error) {
 
 	stats, err := syncr.SyncAll()
 	if err != nil {
-		// 初期化のエラーをより明確に表示
+		// Display initialization errors more clearly
 		errMsg := err.Error()
 		appMapNotFoundErr := fmt.Sprintf("app map file not found at %s", config.AppMapFile)
 
@@ -220,13 +220,13 @@ func main() {
 
 	var exitCode int
 
-	// サブコマンドに応じて処理を分岐
+	// Branch processing according to subcommand
 	switch subCommand {
 	case "init":
-		// 初期化コマンド
+		// Initialization command
 		exitCode, err = runInit(config)
 	default:
-		// 通常の同期コマンド
+		// Normal sync command
 		exitCode, err = runSync(config)
 	}
 

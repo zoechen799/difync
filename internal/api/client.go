@@ -14,14 +14,14 @@ import (
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
-	token      string // トークンをprivateフィールドに変更
+	token      string // Changed token to private field
 }
 
 // AppInfo represents the basic information about a Dify application
 type AppInfo struct {
 	ID        string      `json:"id"`
 	Name      string      `json:"name"`
-	UpdatedAt interface{} `json:"updated_at"` // 数値または文字列に対応するためinterface{}型に変更
+	UpdatedAt interface{} `json:"updated_at"` // Changed to interface{} to handle both string and numeric types
 }
 
 // LoginResponse represents the response from the login API
@@ -110,16 +110,16 @@ func (c *Client) GetAppInfo(appID string) (*AppInfo, error) {
 		return nil, fmt.Errorf("API returned error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
-	// レスポンスボディを保存
+	// Save response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// デバッグ出力
+	// Debug output
 	fmt.Printf("Debug - Raw API Response: %s\n", string(body))
 
-	// JSON応答をパース
+	// Parse JSON response
 	var result struct {
 		Data AppInfo `json:"data"`
 	}
@@ -128,7 +128,7 @@ func (c *Client) GetAppInfo(appID string) (*AppInfo, error) {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// UpdatedAtフィールドの値を出力（型情報も含めて）
+	// Output UpdatedAt field value (including type information)
 	fmt.Printf("Debug - UpdatedAt value: %v (type: %T)\n", result.Data.UpdatedAt, result.Data.UpdatedAt)
 
 	return &result.Data, nil
@@ -228,13 +228,13 @@ func (c *Client) GetAppList() ([]AppInfo, error) {
 		return nil, fmt.Errorf("API returned error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
-	// レスポンスボディを保存
+	// Save response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// デバッグ出力
+	// Debug output
 	fmt.Printf("Debug - GetAppList Raw API Response: %s\n", string(body))
 
 	var result struct {
