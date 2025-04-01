@@ -87,9 +87,15 @@ func (s *DefaultSyncer) InitializeAppMap() (*AppMap, error) {
 		return nil, fmt.Errorf("no applications found in Dify account")
 	}
 
-	// Create DSL directory if it doesn't exist
+	// Create DSL directory and its parent directories if they don't exist
 	if err := os.MkdirAll(s.config.DSLDirectory, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create DSL directory: %w", err)
+	}
+
+	// Create app map directory and its parent directories if they don't exist
+	appMapDir := filepath.Dir(s.config.AppMapFile)
+	if err := os.MkdirAll(appMapDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory for app map file: %w", err)
 	}
 
 	// Create app map
@@ -159,11 +165,6 @@ func (s *DefaultSyncer) InitializeAppMap() (*AppMap, error) {
 
 	// Write the app map to file
 	if !s.config.DryRun {
-		appMapDir := filepath.Dir(s.config.AppMapFile)
-		if err := os.MkdirAll(appMapDir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory for app map file: %w", err)
-		}
-
 		file, err := os.Create(s.config.AppMapFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create app map file: %w", err)
