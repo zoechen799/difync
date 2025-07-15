@@ -488,8 +488,17 @@ func (s *DefaultSyncer) SyncApp(app AppMapping) SyncResult {
 
 	fmt.Printf("Debug - App Info for %s: %+v\n", app.AppID, appInfo)
 
+	// 获取发布信息
+	appPublish, err := s.client.GetAppPublish(app.AppID)
+	if err != nil {
+		appPublish = nil
+	} else {
+		fmt.Printf("Debug - App Publish for %s: %+v\n", app.AppID, appPublish)
+	}
+
 	// Convert interface{} updated_at to time.Time
 	var remoteModTime time.Time
+	var remotePublishTime time.Time
 	var useLocalTime bool = false
 
 	if appInfo.UpdatedAt == nil {
@@ -571,8 +580,70 @@ func (s *DefaultSyncer) SyncApp(app AppMapping) SyncResult {
 		return result
 	}
 
+	if appPublish != nil && appPublish.UpdatedAt != nil {
+		switch v := appPublish.UpdatedAt.(type) {
+		case string:
+			// For string type: parse the timestamp string
+			if v != "" {
+				// Try RFC3339 format (2023-01-02T15:04:05Z)
+				parsedTime, err := time.Parse(time.RFC3339, v)
+				if err == nil {
+					remotePublishTime = parsedTime
+				} else {
+					// Try other formats
+					layouts := []string{
+						"2006-01-02 15:04:05",
+						"2006-01-02T15:04:05",
+						"2006/01/02 15:04:05",
+						time.RFC1123,
+						time.RFC1123Z,
+					}
+
+					for _, layout := range layouts {
+						parsedTime, err := time.Parse(layout, v)
+						if err == nil {
+							remotePublishTime = parsedTime
+							break
+						}
+					}
+				}
+			} else {
+				// Empty string, treat as nil case
+				fmt.Printf("Debug - Deploy UpdatedAt is empty string, using past timestamp to prioritize local file\n")
+				remotePublishTime = time.Unix(0, 0)
+			}
+		case float64:
+			// For numeric type: interpret as UNIX timestamp (seconds)
+			remotePublishTime = time.Unix(int64(v), 0)
+			fmt.Printf("Debug - Deploy Converted float64 timestamp %v to time: %v\n", v, remotePublishTime)
+		case int:
+			// For integer type: interpret as UNIX timestamp (seconds)
+			remotePublishTime = time.Unix(int64(v), 0)
+			fmt.Printf("Debug - Deploy Converted int timestamp %v to time: %v\n", v, remotePublishTime)
+		case int64:
+			// For 64-bit integer: interpret as UNIX timestamp
+			remotePublishTime = time.Unix(v, 0)
+			fmt.Printf("Debug - Deploy Converted int64 timestamp %v to time: %v\n", v, remotePublishTime)
+		case json.Number:
+			// For json.Number type
+			if i, err := v.Int64(); err == nil {
+				remotePublishTime = time.Unix(i, 0)
+				fmt.Printf("Debug - Deploy Converted json.Number timestamp %v to time: %v\n", v, remotePublishTime)
+			} else {
+				// If conversion fails, treat as nil case
+				fmt.Printf("Debug - Deploy Could not convert json.Number %v to timestamp, using past timestamp\n", v)
+				remotePublishTime = time.Unix(0, 0)
+			}
+		default:
+			fmt.Printf("Debug - Unknown type for UpdatedAt: %T value: %v, using past timestamp\n", appInfo.UpdatedAt, appInfo.UpdatedAt)
+			remotePublishTime = time.Unix(0, 0)
+		}
+	} else {
+		remotePublishTime = time.Unix(0, 0)
+	}
+
 	// Only download if remote is newer
-	if remoteModTime.After(localModTime) {
+	if remoteModTime.After(localModTime) || remotePublishTime.After(localModTime) {
 		return s.downloadFromRemote(app, localPath)
 	}
 

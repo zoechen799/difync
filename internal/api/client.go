@@ -24,6 +24,13 @@ type AppInfo struct {
 	UpdatedAt interface{} `json:"updated_at"` // Changed to interface{} to handle both string and numeric types
 }
 
+// AppPublishInfo represents the publish information about a Dify application
+type AppPublishInfo struct {
+	ID        string      `json:"id"`
+	Version   string      `json:"version"`
+	UpdatedAt interface{} `json:"updated_at"`
+}
+
 // LoginResponse represents the response from the login API
 type LoginResponse struct {
 	Status string `json:"status"`
@@ -171,6 +178,60 @@ func (c *Client) GetAppInfo(appID string) (*AppInfo, error) {
 
 	fmt.Printf("Debug - Constructed AppInfo: %+v\n", appInfo)
 	return appInfo, nil
+}
+
+// GetAppPublish fetches application publish information from Dify
+func (c *Client) GetAppPublish(appID string) (*AppPublishInfo, error) {
+	if c.token == "" {
+		return nil, fmt.Errorf("not authenticated, call Login() first")
+	}
+
+	url := fmt.Sprintf("%s/console/api/apps/%s/workflows/publish", c.BaseURL, appID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API returned error: status=%d, body=%s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	fmt.Printf("Debug - GetAppPublish Raw API Response: %s\n", string(body))
+
+	var rawData map[string]interface{}
+	if err := json.Unmarshal(body, &rawData); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON to map: %w", err)
+	}
+
+	appPublishInfo := &AppPublishInfo{}
+	if id, ok := rawData["id"].(string); ok {
+		appPublishInfo.ID = id
+	}
+	if version, ok := rawData["version"].(string); ok {
+		appPublishInfo.Version = version
+	}
+	if updatedAt, exists := rawData["updated_at"]; exists {
+		appPublishInfo.UpdatedAt = updatedAt
+	}
+
+	fmt.Printf("Debug - Constructed AppPublishInfo: %+v\n", appPublishInfo)
+	return appPublishInfo, nil
 }
 
 // GetDSL fetches the DSL for a specific app from Dify
